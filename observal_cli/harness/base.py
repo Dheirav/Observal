@@ -114,6 +114,14 @@ class BaseAdapter:
         """Return recent session sources; harness adapters opt in as they are migrated."""
         return []
 
+    def resolve_session_agent_identity(
+        self,
+        session_jsonl: Path | None,
+        cwd: str,
+    ) -> tuple[str | None, str | None] | None:
+        """Resolve a harness-specific session identity, or defer to shared resolution."""
+        return None
+
     def related_session_sources(self, source: SessionSource, home: Path | None = None) -> list[SessionSource]:
         """Return child sources when a harness stores them separately."""
         return []

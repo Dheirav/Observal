@@ -406,6 +406,34 @@ def get_agent_by_id(agent_id: str, harness: str | None = None) -> dict | None:
     return None
 
 
+def get_agent_by_name(
+    name: str,
+    harness: str,
+    directory: str | None = None,
+) -> dict | None:
+    """Find one harness agent by its generated local name, name, or UUID.
+
+    A matching project directory disambiguates project-scoped installs. Without
+    that signal, a unique user-scoped or unique overall match is accepted;
+    ambiguous matches fail closed.
+    """
+    _, registry = read_registry_lockfile()
+    agents = registry.get("harnesses", {}).get(harness, {}).get("agents", [])
+    matches = [agent for agent in agents if name in {agent.get("local_name"), agent.get("name"), agent.get("id")}]
+    if directory:
+        directory_matches = [agent for agent in matches if agent.get("directory") == directory]
+        if len(directory_matches) == 1:
+            return directory_matches[0]
+        if len(directory_matches) > 1:
+            return None
+    user_matches = [agent for agent in matches if agent.get("scope") != "project"]
+    if len(user_matches) == 1:
+        return user_matches[0]
+    if user_matches:
+        return None
+    return matches[0] if len(matches) == 1 else None
+
+
 def get_all_entries(harness: str | None = None) -> list[dict]:
     """Get all lock file entries, optionally filtered by harness.
 

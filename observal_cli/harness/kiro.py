@@ -41,7 +41,7 @@ class KiroAdapter(BaseAdapter):
         return "kiro"
 
     def resolve_session_source(self, event: dict[str, Any], home: Path | None = None) -> SessionSource | None:
-        from observal_cli.sessions.kiro import find_kiro_jsonl, resolve_session_id
+        from observal_cli.sessions.kiro import find_kiro_jsonl, read_kiro_session_cwd, resolve_session_id
 
         session_id = resolve_session_id(event, home=home)
         if not session_id:
@@ -57,7 +57,7 @@ class KiroAdapter(BaseAdapter):
             harness=self.harness_name,
             session_id=session_id,
             path=path,
-            cwd=str(event.get("cwd") or ""),
+            cwd=read_kiro_session_cwd(path),
         )
 
     def discover_session_sources(
@@ -65,7 +65,7 @@ class KiroAdapter(BaseAdapter):
         home: Path | None = None,
         since_hours: int = 168,
     ) -> list[SessionSource]:
-        from observal_cli.sessions.kiro import find_sessions_dir
+        from observal_cli.sessions.kiro import find_sessions_dir, read_kiro_session_cwd
 
         cutoff = time.time() - since_hours * 3600
         root = find_sessions_dir(home)
@@ -75,10 +75,37 @@ class KiroAdapter(BaseAdapter):
         for path in sorted(root.glob("*.jsonl")):
             try:
                 if path.stat().st_mtime >= cutoff:
-                    sources.append(SessionSource(self.harness_name, path.stem, path))
+                    sources.append(
+                        SessionSource(
+                            self.harness_name,
+                            path.stem,
+                            path,
+                            cwd=read_kiro_session_cwd(path),
+                        )
+                    )
             except OSError:
                 continue
         return sources
+
+    def resolve_session_agent_identity(
+        self,
+        session_jsonl: Path | None,
+        cwd: str,
+    ) -> tuple[str | None, str | None] | None:
+        """Resolve Kiro identity from session metadata, never the global hook environment."""
+        from observal_cli.lockfile import get_agent_by_name
+        from observal_cli.sessions.kiro import read_kiro_agent_name
+
+        agent_name = read_kiro_agent_name(session_jsonl)
+        if not agent_name or agent_name == "kiro_default":
+            return None, None
+        try:
+            entry = get_agent_by_name(agent_name, harness=self.harness_name, directory=cwd or None)
+        except Exception:
+            return None, None
+        if entry is None:
+            return None, None
+        return entry.get("id"), entry.get("version")
 
     def session_extra_fields(
         self,

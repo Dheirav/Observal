@@ -787,12 +787,18 @@ def _resolve_agent(
     session_jsonl: Path | None,
     harness: str = "claude-code",
 ) -> tuple[str | None, str | None]:
-    """Resolve agent identity from explicit metadata and the lockfile.
-
-    Kiro attribution is UUID-only via OBSERVAL_AGENT_ID. The lockfile is the
-    source of truth for the installed version; cwd must not guess Kiro agents.
-    """
+    """Resolve agent identity through the harness adapter, environment, and lockfile."""
     import os
+
+    from observal_cli.harness import ensure_loaded, get_adapter
+
+    ensure_loaded()
+    adapter = get_adapter(harness)
+    resolve_identity = getattr(adapter, "resolve_session_agent_identity", None)
+    if callable(resolve_identity):
+        adapter_identity = resolve_identity(session_jsonl, cwd)
+        if adapter_identity is not None:
+            return adapter_identity
 
     env_agent_id = os.environ.get("OBSERVAL_AGENT_ID", "")
     if env_agent_id:
@@ -811,10 +817,7 @@ def _resolve_agent(
         optic.warning("OBSERVAL_AGENT_ID={} not found in lockfile (harness={})", env_agent_id, harness)
         return None, None
 
-    from observal_cli.harness import ensure_loaded, get_adapter
-
-    ensure_loaded()
-    if get_adapter(harness).requires_explicit_agent_id():
+    if adapter.requires_explicit_agent_id():
         optic.debug("{} session has no OBSERVAL_AGENT_ID; leaving unattributed", harness)
         return None, None
 

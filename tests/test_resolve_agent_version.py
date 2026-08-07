@@ -4,8 +4,10 @@
 """Tests for _resolve_agent version attribution from lockfile."""
 
 import json
+from pathlib import Path
 from unittest.mock import patch
 
+from observal_cli.lockfile import get_agent_by_name
 from observal_cli.sessions.base import _lookup_lockfile_agent, _resolve_agent
 
 
@@ -30,46 +32,111 @@ def _make_lockfile_entry(
     }
 
 
+def _write_kiro_session(tmp_path: Path, agent_name: str) -> Path:
+    session_dir = tmp_path / ".kiro" / "sessions" / "cli"
+    session_dir.mkdir(parents=True)
+    transcript = session_dir / "session.jsonl"
+    transcript.write_text('{"kind":"Prompt"}\n')
+    transcript.with_suffix(".json").write_text(
+        json.dumps(
+            {
+                "session_state": {
+                    "agent_name": agent_name,
+                    "conversation_metadata": {
+                        "user_turn_metadatas": [
+                            {"loop_id": {"agent_id": {"name": agent_name}}},
+                        ]
+                    },
+                }
+            }
+        )
+    )
+    return transcript
+
+
 class TestResolveAgentVersionFromLockfile:
     """Verify that _resolve_agent enriches agent name with version from lockfile."""
 
-    def test_env_agent_id_gets_version_from_lockfile(self):
-        """Kiro per-agent hooks pass only the Observal agent UUID."""
+    def test_kiro_session_agent_gets_version_from_lockfile(self, tmp_path):
+        """Kiro attribution comes from session metadata, not the hook environment."""
+        transcript = _write_kiro_session(tmp_path, "my-agent")
         entry = _make_lockfile_entry(name="my-agent", agent_id="uuid-123", version="1.2.0")
 
         with (
-            patch.dict("os.environ", {"OBSERVAL_AGENT_ID": "uuid-123"}, clear=True),
-            patch("observal_cli.sessions.base._lookup_lockfile_agent_by_id", return_value=entry),
+            patch.dict("os.environ", {"OBSERVAL_AGENT_ID": "wrong-hook-uuid"}, clear=True),
+            patch("observal_cli.lockfile.get_agent_by_name", return_value=entry) as lookup,
+            patch("observal_cli.sessions.base._lookup_lockfile_agent_by_id") as id_lookup,
         ):
-            agent_id, agent_version = _resolve_agent("", [], None, harness="kiro")
+            agent_id, agent_version = _resolve_agent("", [], transcript, harness="kiro")
 
         assert agent_id == "uuid-123"
         assert agent_version == "1.2.0"
+        lookup.assert_called_once_with("my-agent", harness="kiro", directory=None)
+        id_lookup.assert_not_called()
 
-    def test_env_agent_id_missing_lockfile_returns_unattributed(self, tmp_path):
-        """Unknown Kiro UUIDs must not fall back to cwd guesses."""
+    def test_kiro_session_agent_missing_lockfile_returns_unattributed(self, tmp_path):
+        """Unknown Kiro agent names must not fall back to a hook UUID or cwd guess."""
+        transcript = _write_kiro_session(tmp_path, "local-agent")
         with (
-            patch.dict("os.environ", {"OBSERVAL_AGENT_ID": "missing-uuid"}, clear=True),
-            patch("observal_cli.sessions.base._lookup_lockfile_agent_by_id", return_value=None),
-            patch("observal_cli.sessions.base._lookup_lockfile_agent") as cwd_lookup,
+            patch.dict("os.environ", {"OBSERVAL_AGENT_ID": "pulled-agent-uuid"}, clear=True),
+            patch("observal_cli.lockfile.get_agent_by_name", return_value=None),
+            patch("observal_cli.sessions.base._lookup_lockfile_agent_by_id") as id_lookup,
         ):
-            agent_id, agent_version = _resolve_agent(str(tmp_path), [], None, harness="kiro")
+            agent_id, agent_version = _resolve_agent(str(tmp_path), [], transcript, harness="kiro")
 
         assert agent_id is None
         assert agent_version is None
-        cwd_lookup.assert_not_called()
+        id_lookup.assert_not_called()
 
-    def test_kiro_without_env_agent_id_returns_unattributed(self, tmp_path):
-        """Kiro has no JSONL agent field, so missing UUID means no attribution."""
+    def test_kiro_default_ignores_pulled_agent_hook_id(self, tmp_path):
+        """Globally fired pulled-agent hooks must not claim kiro_default sessions."""
+        transcript = _write_kiro_session(tmp_path, "kiro_default")
+        with (
+            patch.dict("os.environ", {"OBSERVAL_AGENT_ID": "pulled-agent-uuid"}, clear=True),
+            patch("observal_cli.lockfile.get_agent_by_name") as name_lookup,
+            patch("observal_cli.sessions.base._lookup_lockfile_agent_by_id") as id_lookup,
+        ):
+            agent_id, agent_version = _resolve_agent(str(tmp_path), [], transcript, harness="kiro")
+
+        assert agent_id is None
+        assert agent_version is None
+        name_lookup.assert_not_called()
+        id_lookup.assert_not_called()
+
+    def test_kiro_missing_metadata_does_not_trust_hook_id(self, tmp_path):
+        """Missing session metadata fails safely instead of guessing from the hook."""
+        transcript = tmp_path / "missing.jsonl"
+        transcript.write_text('{"kind":"Prompt"}\n')
+        with (
+            patch.dict("os.environ", {"OBSERVAL_AGENT_ID": "uuid-123"}, clear=True),
+            patch("observal_cli.lockfile.get_agent_by_name") as name_lookup,
+            patch("observal_cli.sessions.base._lookup_lockfile_agent_by_id") as id_lookup,
+        ):
+            agent_id, agent_version = _resolve_agent(str(tmp_path), [], transcript, harness="kiro")
+
+        assert agent_id is None
+        assert agent_version is None
+        name_lookup.assert_not_called()
+        id_lookup.assert_not_called()
+
+    def test_adapter_without_identity_extension_uses_shared_resolution(self):
+        """Existing structural adapters can omit the optional identity resolver."""
+
+        class LegacyAdapter:
+            @staticmethod
+            def requires_explicit_agent_id() -> bool:
+                return False
+
         with (
             patch.dict("os.environ", {}, clear=True),
-            patch("observal_cli.sessions.base._lookup_lockfile_agent") as cwd_lookup,
+            patch("observal_cli.harness.ensure_loaded"),
+            patch("observal_cli.harness.get_adapter", return_value=LegacyAdapter()),
+            patch("observal_cli.sessions.base._lookup_lockfile_agent", return_value=None),
         ):
-            agent_id, agent_version = _resolve_agent(str(tmp_path), [], None, harness="kiro")
+            agent_id, agent_version = _resolve_agent("", [], None, harness="legacy")
 
         assert agent_id is None
         assert agent_version is None
-        cwd_lookup.assert_not_called()
 
     def test_env_var_gets_version_from_lockfile(self, tmp_path):
         """When OBSERVAL_AGENT_NAME is set, version should come from lockfile."""
@@ -230,3 +297,28 @@ class TestResolveAgentVersionFromLockfile:
 
         assert entry is not None
         assert entry["version"] == "1.2.0"
+
+    def test_kiro_lockfile_lookup_matches_generated_local_name(self):
+        """Session metadata records the generated Kiro profile name, not its display name."""
+        entry = _make_lockfile_entry(name="Display Name", agent_id="uuid-local", version="2.0.0", scope="user")
+        entry["local_name"] = "alice-shared"
+        data = {"harnesses": {"kiro": {"agents": [entry]}}}
+
+        with patch("observal_cli.lockfile.read_registry_lockfile", return_value=({}, data)):
+            matched = get_agent_by_name("alice-shared", harness="kiro")
+
+        assert matched is entry
+
+    def test_kiro_lockfile_lookup_fails_closed_for_ambiguous_projects(self):
+        """Recovery without cwd must not choose an arbitrary project-scoped agent."""
+        first = _make_lockfile_entry(name="Agent", agent_id="uuid-one", directory="/project/one")
+        second = _make_lockfile_entry(name="Agent", agent_id="uuid-two", directory="/project/two")
+        first["local_name"] = second["local_name"] = "shared-agent"
+        data = {"harnesses": {"kiro": {"agents": [first, second]}}}
+
+        with patch("observal_cli.lockfile.read_registry_lockfile", return_value=({}, data)):
+            ambiguous = get_agent_by_name("shared-agent", harness="kiro")
+            scoped = get_agent_by_name("shared-agent", harness="kiro", directory="/project/two")
+
+        assert ambiguous is None
+        assert scoped is second

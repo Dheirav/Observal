@@ -34,6 +34,63 @@ def find_kiro_jsonl(session_id: str, home: Path | None = None) -> Path | None:
     return path if path.exists() else None
 
 
+def _read_kiro_session(session_jsonl: Path | None) -> dict | None:
+    """Read a Kiro companion session object, returning None on any invalid shape."""
+    if session_jsonl is None:
+        return None
+    try:
+        session = json.loads(session_jsonl.with_suffix(".json").read_text())
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    return session if isinstance(session, dict) else None
+
+
+def read_kiro_agent_name(session_jsonl: Path | None) -> str | None:
+    """Return the active Kiro agent recorded in a session companion file.
+
+    Kiro stores session metadata next to the transcript as ``<session_id>.json``.
+    Current versions expose the active agent directly as
+    ``session_state.agent_name``. Older-compatible metadata also records the
+    agent on each user turn, so the latest turn is a safe fallback when the
+    direct field is absent. Missing or malformed metadata is left unattributed.
+    """
+    session = _read_kiro_session(session_jsonl)
+    if session is None:
+        return None
+
+    state = session.get("session_state")
+    if not isinstance(state, dict):
+        return None
+    agent_name = state.get("agent_name")
+    if isinstance(agent_name, str) and agent_name.strip():
+        return agent_name.strip()
+
+    conversation = state.get("conversation_metadata")
+    if not isinstance(conversation, dict):
+        return None
+    turns = conversation.get("user_turn_metadatas")
+    if not isinstance(turns, list):
+        return None
+    for turn in reversed(turns):
+        if not isinstance(turn, dict):
+            continue
+        loop_id = turn.get("loop_id")
+        agent_id = loop_id.get("agent_id") if isinstance(loop_id, dict) else None
+        name = agent_id.get("name") if isinstance(agent_id, dict) else None
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    return None
+
+
+def read_kiro_session_cwd(session_jsonl: Path | None) -> str:
+    """Return the working directory persisted in a Kiro companion session."""
+    session = _read_kiro_session(session_jsonl)
+    if session is None:
+        return ""
+    cwd = session.get("cwd")
+    return cwd.strip() if isinstance(cwd, str) else ""
+
+
 def resolve_session_id(event: dict, home: Path | None = None) -> str:
     """Return the session_id for a Kiro hook event.
 
