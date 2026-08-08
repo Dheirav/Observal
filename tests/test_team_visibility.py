@@ -25,8 +25,15 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from api.deps import get_current_user, get_db
 from api.routes.teams import router as teams_router
+from models.agent import Agent
 from models.base import Base
+from models.component_source import ComponentSource
+from models.hook import HookListing
 from models.inbox import InboxItem, InboxItemEvent
+from models.mcp import McpListing
+from models.prompt import PromptListing
+from models.sandbox import SandboxListing
+from models.skill import SkillListing
 from models.team import Team, TeamMembership, TeamMembershipRequest, TeamRole
 from models.user import User, UserRole
 
@@ -37,6 +44,13 @@ _TABLES = [
     TeamMembershipRequest.__table__,
     InboxItem.__table__,
     InboxItemEvent.__table__,
+    Agent.__table__,
+    McpListing.__table__,
+    SkillListing.__table__,
+    HookListing.__table__,
+    PromptListing.__table__,
+    SandboxListing.__table__,
+    ComponentSource.__table__,
 ]
 
 
@@ -329,6 +343,36 @@ async def test_public_team_owner_routes_still_403_for_non_members(sessions):
         queue = await client.get(f"/api/v1/teams/{team.id}/join-requests")
     assert members.status_code == 403
     assert queue.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_team_cannot_go_private_while_it_owns_public_items(sessions):
+    async with sessions() as db:
+        owner = await _user(db)
+        team = Team(id=uuid.uuid4(), name="Public Owner", handle=f"public-{uuid.uuid4().hex[:8]}", created_by=owner.id)
+        db.add(team)
+        await db.flush()
+        db.add_all(
+            [
+                TeamMembership(team_id=team.id, user_id=owner.id, role=TeamRole.owner),
+                McpListing(
+                    id=uuid.uuid4(),
+                    name="Public Tool",
+                    namespace=team.handle,
+                    slug="public-tool",
+                    category="general",
+                    owner=team.handle,
+                    submitted_by=owner.id,
+                    team_id=team.id,
+                    is_private=False,
+                ),
+            ]
+        )
+        await db.commit()
+
+    response = await _set_visibility(sessions, owner, team.id, "private")
+    assert response.status_code == 409
+    assert "MCP server" in response.json()["detail"]
 
 
 @pytest.mark.asyncio

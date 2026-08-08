@@ -105,6 +105,17 @@ function AgentBuilderInner() {
   const [activeTab, setActiveTab] = useState<RegistryType>("mcps");
   const [teamId, setTeamId] = useState(teamParam ?? "");
   const [visibility, setVisibility] = useState<"public" | "team">("public");
+  const selectedTeam = teams.find((team) => team.id === teamId);
+  const visibilityOptions = selectedTeam?.visibility === "private"
+    ? [{ value: "team", label: "Team members only" }]
+    : [
+        { value: "public", label: "Public" },
+        { value: "team", label: "Team members only" },
+      ];
+
+  useEffect(() => {
+    if (selectedTeam?.visibility === "private") setVisibility("team");
+  }, [selectedTeam?.visibility]);
 
   // Version bump dialog
   const [showVersionDialog, setShowVersionDialog] = useState(false);
@@ -717,7 +728,11 @@ function AgentBuilderInner() {
                     onValueChange={(value) => {
                       const next = value === "personal" ? "" : value;
                       setTeamId(next);
-                      if (!next) setVisibility("public");
+                      if (!next) {
+                        setVisibility("public");
+                      } else if (teams.find((team) => team.id === next)?.visibility === "private") {
+                        setVisibility("team");
+                      }
                     }}
                     options={[
                       { value: "personal", label: `Personal (${whoami?.username || whoami?.email || "me"})` },
@@ -736,10 +751,8 @@ function AgentBuilderInner() {
                       }
                       setVisibility(value as "public" | "team");
                     }}
-                    options={[
-                      { value: "public", label: "Public" },
-                      { value: "team", label: "Team members only" },
-                    ]}
+                    options={visibilityOptions}
+                    disabled={selectedTeam?.visibility === "private"}
                   />
                 </div>
               </div>

@@ -499,7 +499,7 @@ export const registry = {
 	submit: (type: RegistryType, body: unknown) =>
 		post<RegistryItem>(`/${type}/submit`, body),
 	updateVisibility: (type: RegistryType, id: string, visibility: "public" | "team") =>
-		patch<{ id: string; visibility: "public" | "team" }>(
+		patch<{ id: string; qualified_name: string; team_id: string | null; visibility: "public" | "team" }>(
 			`/registry/${type === "agents" ? "agent" : type.slice(0, -1)}/${id}/visibility`,
 			{ visibility },
 		),

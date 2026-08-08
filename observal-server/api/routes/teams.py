@@ -48,8 +48,11 @@ def _role_value(role) -> str | None:
     return role.value if hasattr(role, "value") else str(role)
 
 
-async def _load_team(db: AsyncSession, team_id: uuid.UUID) -> Team:
-    team = await db.get(Team, team_id)
+async def _load_team(db: AsyncSession, team_id: uuid.UUID, *, for_update: bool = False) -> Team:
+    if for_update:
+        team = (await db.execute(select(Team).where(Team.id == team_id).with_for_update())).scalar_one_or_none()
+    else:
+        team = await db.get(Team, team_id)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     return team
@@ -402,12 +405,10 @@ async def update_team_visibility(
     """Flip a teamspace between public and private, GitHub-style.
 
     Team owners and team reviewers hold this control (plus deployment admins).
-    Going private hides the teamspace from plain non-member users everywhere —
-    discovery, by-handle resolution, and join requests — while members and
-    global reviewers/admins keep seeing it. Listings keep their own visibility:
-    a public listing published from the teamspace stays in the public catalog.
+    Going private hides the teamspace from plain non-member users everywhere.
+    Public registry items must be made team-private before this change.
     """
-    team = await _load_team(db, team_id)
+    team = await _load_team(db, team_id, for_update=True)
     membership = await team_membership(db, team.id, current_user.id)
     allowed = is_admin(current_user) or (membership is not None and membership.role in REVIEWING_TEAM_ROLES)
     if not allowed:
@@ -416,6 +417,15 @@ async def update_team_visibility(
         if membership is None and not team_visible_to(team, membership, current_user):
             raise HTTPException(status_code=404, detail="Team not found")
         raise HTTPException(status_code=403, detail="Only team owners and reviewers can change visibility")
+
+    if req.visibility == "private" and not team.is_private:
+        public_items = await _team_owned_listing_counts(db, team.id, public_only=True)
+        if public_items:
+            detail = ", ".join(f"{count} {label}" for label, count in sorted(public_items.items()))
+            raise HTTPException(
+                status_code=409,
+                detail=f"Make these public registry items team-private first: {detail}",
+            )
 
     changed = team.is_private != (req.visibility == "private")
     team.is_private = req.visibility == "private"
@@ -450,7 +460,9 @@ async def update_team_visibility(
     )
 
 
-async def _team_owned_listing_counts(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
+async def _team_owned_listing_counts(
+    db: AsyncSession, team_id: uuid.UUID, *, public_only: bool = False
+) -> dict[str, int]:
     """Count everything published under a teamspace, by kind.
 
     The team_id foreign keys are ON DELETE RESTRICT as of migration 019, so the
@@ -479,10 +491,15 @@ async def _team_owned_listing_counts(db: AsyncSession, team_id: uuid.UUID) -> di
     }
     counts: dict[str, int] = {}
     for model, (singular, plural) in labels.items():
+        if public_only and not hasattr(model, "is_private"):
+            continue
         # Soft-deleted agents count too. They are restorable and still carry the
         # teamspace's namespace, so freeing the handle while one exists lets a new
         # team claim it and inherit that agent on restore.
-        total = await db.scalar(select(func.count(model.id)).where(model.team_id == team_id))
+        stmt = select(func.count(model.id)).where(model.team_id == team_id)
+        if public_only:
+            stmt = stmt.where(model.is_private.is_(False))
+        total = await db.scalar(stmt)
         if total:
             counts[singular if total == 1 else plural] = total
     return counts

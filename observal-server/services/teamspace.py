@@ -186,9 +186,11 @@ async def resolve_publish_target(
             auto_approve=False,
         )
 
-    team = await db.get(Team, team_id)
+    team = await db.get(Team, team_id, with_for_update=True)
     if not team:
         raise HTTPException(status_code=404, detail="Teamspace not found")
+    if team.is_private and target_visibility == "public":
+        raise HTTPException(status_code=409, detail="Private teamspaces can only publish team-private items")
     membership = await team_membership(db, team.id, user.id)
     # Publishing into a teamspace you do not belong to is an admin capability, not a
     # reviewer one. A global reviewer cannot read another team's private listings, so

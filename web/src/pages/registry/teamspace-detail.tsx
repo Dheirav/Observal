@@ -1113,6 +1113,7 @@ export default function TeamspaceDetailPage() {
 				onOpenChange={setComponentDialogOpen}
 				type={activeType}
 				fixedTeamId={team.id}
+				fixedVisibility={team.visibility === "private" ? "team" : undefined}
 				onSubmit={(body) =>
 					submitComponent.mutate(body, { onSuccess: () => setComponentDialogOpen(false) })
 				}
