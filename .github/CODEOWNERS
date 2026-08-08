@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2026 Hari Srinivasan <harisrini21@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+# Default ownership. Haz3-jolt remains an owner for every repository path.
+* @Haz3-jolt @Observal/core
+
+# Repository policy, automation, and deployment require an administrator.
+/.github/ @Haz3-jolt @Observal/admin
+/docker/ @Haz3-jolt @Observal/admin
+/infra/ @Haz3-jolt @Observal/admin
+/grafana/ @Haz3-jolt @Observal/admin
+/prometheus.yml @Haz3-jolt @Observal/admin
+/SECURITY.md @Haz3-jolt @Observal/admin
