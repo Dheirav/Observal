@@ -350,9 +350,9 @@ async def _seed_component_used_by_older_version(
     return SimpleNamespace(listing_id=listing.id, user=SimpleNamespace(id=owner_id, role=UserRole.user))
 
 
-async def _patch_visibility(session, listing_id, user, visibility="team"):
+async def _patch_visibility(session, listing_id, user, visibility="team", item_type="mcp"):
     return await update_registry_visibility(
-        "mcp",
+        item_type,
         str(listing_id),
         VisibilityUpdateRequest(visibility=visibility),
         SimpleNamespace(state=SimpleNamespace()),
@@ -419,6 +419,167 @@ async def test_component_goes_private_when_the_dependent_agent_is_team_private()
         async with sessions() as session:
             result = await _patch_visibility(session, seed.listing_id, seed.user)
         assert result["visibility"] == "team"
+
+
+@pytest.mark.asyncio
+async def test_personal_component_moves_to_claimed_private_teamspace():
+    owner_id = uuid.uuid4()
+    team = Team(
+        id=uuid.uuid4(),
+        name="Personal",
+        handle="alice-private",
+        created_by=owner_id,
+        is_private=True,
+        is_personal=True,
+    )
+    listing = McpListing(
+        id=uuid.uuid4(),
+        name="Search",
+        namespace="alice",
+        slug="search",
+        category="general",
+        owner="alice",
+        submitted_by=owner_id,
+        is_private=False,
+        co_authors=[],
+    )
+    async with _sessions() as sessions:
+        async with sessions() as session:
+            session.add_all(
+                [
+                    team,
+                    TeamMembership(team_id=team.id, user_id=owner_id, role=TeamRole.owner),
+                    listing,
+                ]
+            )
+            await session.commit()
+
+        user = SimpleNamespace(id=owner_id, role=UserRole.user)
+        async with sessions() as session:
+            result = await _patch_visibility(session, listing.id, user)
+
+        assert result["team_id"] == team.id
+        assert result["qualified_name"] == "alice-private/search"
+        async with sessions() as session:
+            moved = await session.get(McpListing, listing.id)
+            assert moved.team_id == team.id
+            assert moved.namespace == team.handle
+            assert moved.owner == team.handle
+            assert moved.is_private is True
+
+
+@pytest.mark.asyncio
+async def test_personal_agent_moves_to_claimed_private_teamspace():
+    owner_id = uuid.uuid4()
+    team = Team(
+        id=uuid.uuid4(),
+        name="Personal",
+        handle="alice-private",
+        created_by=owner_id,
+        is_private=True,
+        is_personal=True,
+    )
+    agent = Agent(
+        id=uuid.uuid4(),
+        name="Reviewer",
+        namespace="alice",
+        slug="reviewer",
+        owner="alice",
+        created_by=owner_id,
+        is_private=False,
+        co_authors=[],
+    )
+    async with _sessions() as sessions:
+        async with sessions() as session:
+            session.add_all(
+                [
+                    team,
+                    TeamMembership(team_id=team.id, user_id=owner_id, role=TeamRole.owner),
+                    agent,
+                ]
+            )
+            await session.commit()
+
+        user = SimpleNamespace(id=owner_id, role=UserRole.user)
+        async with sessions() as session:
+            result = await _patch_visibility(session, agent.id, user, item_type="agent")
+
+        assert result["team_id"] == team.id
+        assert result["qualified_name"] == "alice-private/reviewer"
+        async with sessions() as session:
+            moved = await session.get(Agent, agent.id)
+            assert moved.team_id == team.id
+            assert moved.namespace == team.handle
+            assert moved.owner == team.handle
+            assert moved.is_private is True
+
+
+@pytest.mark.asyncio
+async def test_item_in_private_teamspace_cannot_become_public():
+    owner_id = uuid.uuid4()
+    team = Team(
+        id=uuid.uuid4(),
+        name="Private",
+        handle="private-team",
+        created_by=owner_id,
+        is_private=True,
+    )
+    listing = McpListing(
+        id=uuid.uuid4(),
+        name="Search",
+        namespace=team.handle,
+        slug="search",
+        category="general",
+        owner=team.handle,
+        submitted_by=owner_id,
+        team_id=team.id,
+        is_private=True,
+        co_authors=[],
+    )
+    async with _sessions() as sessions:
+        async with sessions() as session:
+            session.add_all(
+                [
+                    team,
+                    TeamMembership(team_id=team.id, user_id=owner_id, role=TeamRole.owner),
+                    listing,
+                ]
+            )
+            await session.commit()
+
+        user = SimpleNamespace(id=owner_id, role=UserRole.user)
+        async with sessions() as session:
+            with pytest.raises(HTTPException) as exc:
+                await _patch_visibility(session, listing.id, user, visibility="public")
+        assert exc.value.status_code == 409
+        assert "Private teamspaces" in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_personal_item_needs_a_claimed_private_teamspace():
+    owner_id = uuid.uuid4()
+    listing = McpListing(
+        id=uuid.uuid4(),
+        name="Search",
+        namespace="alice",
+        slug="search",
+        category="general",
+        owner="alice",
+        submitted_by=owner_id,
+        is_private=False,
+        co_authors=[],
+    )
+    async with _sessions() as sessions:
+        async with sessions() as session:
+            session.add(listing)
+            await session.commit()
+
+        user = SimpleNamespace(id=owner_id, role=UserRole.user)
+        async with sessions() as session:
+            with pytest.raises(HTTPException) as exc:
+                await _patch_visibility(session, listing.id, user)
+        assert exc.value.status_code == 409
+        assert "Claim a private personal teamspace" in exc.value.detail
 
 
 @pytest.mark.asyncio

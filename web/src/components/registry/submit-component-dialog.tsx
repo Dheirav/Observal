@@ -5,7 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
 	Dialog,
 	DialogContent,
@@ -178,6 +178,19 @@ export function SubmitComponentDialog({
 	const [visibility, setVisibility] = useState<"public" | "team">(
 		(d?.visibility as "public" | "team") ?? "public",
 	);
+	const selectedTeam = teams.find((team) => team.id === (fixedTeamId ?? teamId));
+	const teamRequiresPrivate = selectedTeam?.visibility === "private";
+	const visibilityOptions = teamRequiresPrivate
+		? [{ value: "team", label: "Team members only" }]
+		: [
+				{ value: "public", label: "Public" },
+				{ value: "team", label: "Team members only" },
+			];
+
+	useEffect(() => {
+		if (teamRequiresPrivate) setVisibility("team");
+	}, [teamRequiresPrivate]);
+
 	const [supportedHarnesses, setSupportedHarnesses] = useState<string[]>(
 		Array.isArray(d?.supported_harnesses) ? (d.supported_harnesses as string[]) : [],
 	);
@@ -732,7 +745,11 @@ export function SubmitComponentDialog({
 								onValueChange={(value) => {
 									const next = value === "personal" ? "" : value;
 									setTeamId(next);
-									if (!next) setVisibility("public");
+									if (!next) {
+										setVisibility("public");
+									} else if (teams.find((team) => team.id === next)?.visibility === "private") {
+										setVisibility("team");
+									}
 								}}
 								options={[
 									{ value: "personal", label: `Personal (${whoami?.username || whoami?.email || "me"})` },
@@ -744,7 +761,7 @@ export function SubmitComponentDialog({
 							<Label>Visibility</Label>
 							<PickerSelect
 								value={fixedVisibility ?? visibility}
-								disabled={fixedVisibility !== undefined}
+								disabled={fixedVisibility !== undefined || teamRequiresPrivate}
 								onValueChange={(value) => {
 									if (value === "team" && !(fixedTeamId ?? teamId)) {
 										toast.error("Team visibility requires a teamspace");
@@ -752,10 +769,7 @@ export function SubmitComponentDialog({
 									}
 									setVisibility(value as "public" | "team");
 								}}
-								options={[
-									{ value: "public", label: "Public" },
-									{ value: "team", label: "Team members only" },
-								]}
+								options={visibilityOptions}
 							/>
 						</div>
 					</div>

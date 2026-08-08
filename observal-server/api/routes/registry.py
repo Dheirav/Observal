@@ -33,9 +33,10 @@ from models.mcp import ListingStatus, McpListing, McpVersion
 from models.prompt import PromptListing, PromptVersion
 from models.sandbox import SandboxListing, SandboxVersion
 from models.skill import SkillListing, SkillVersion
-from models.team import TeamRole
+from models.team import Team, TeamRole
 from models.user import User, UserRole
 from services.inbox import sources as inbox
+from services.registry_namespace import identity_exists
 from services.teamspace import review_publication_to_public, team_membership
 
 router = APIRouter(prefix="/api/v1/registry", tags=["registry"])
@@ -167,15 +168,51 @@ async def update_registry_visibility(
     if not privileged and not await check_listing_visibility_async(listing, current_user, db):
         raise HTTPException(status_code=404, detail="Listing not found")
     creator_id = getattr(listing, "created_by", None) or getattr(listing, "submitted_by", None)
+    destination_team: Team | None = None
     if team_id is None:
-        if req.visibility == "team":
-            raise HTTPException(status_code=422, detail="Team visibility requires a teamspace")
         if not privileged and creator_id != current_user.id:
             raise HTTPException(status_code=403, detail="Only the listing owner can change visibility")
-    elif not privileged:
-        membership = await team_membership(db, team_id, current_user.id)
-        if not membership or membership.role not in (TeamRole.owner, TeamRole.reviewer):
-            raise HTTPException(status_code=403, detail="Only team owners and reviewers can change visibility")
+        if req.visibility == "team":
+            if creator_id != current_user.id:
+                raise HTTPException(status_code=403, detail="Only the listing owner can move it into a teamspace")
+            destination_team = (
+                await db.execute(
+                    select(Team)
+                    .where(
+                        Team.created_by == current_user.id,
+                        Team.is_personal.is_(True),
+                        Team.is_private.is_(True),
+                    )
+                    .with_for_update()
+                )
+            ).scalar_one_or_none()
+            if destination_team is None:
+                raise HTTPException(status_code=409, detail="Claim a private personal teamspace first")
+            model = Agent if item_type == "agent" else _LISTING_MODELS[item_type]
+            if await identity_exists(
+                db,
+                model,
+                destination_team.handle,
+                listing.slug,
+                exclude_id=listing.id,
+                active_only=False,
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"{destination_team.handle}/{listing.slug} already exists",
+                )
+    else:
+        owning_team = (await db.execute(select(Team).where(Team.id == team_id).with_for_update())).scalar_one_or_none()
+        if owning_team is None:
+            raise HTTPException(status_code=404, detail="Teamspace not found")
+        if req.visibility == "public" and owning_team.is_private:
+            raise HTTPException(status_code=409, detail="Private teamspaces can only contain team-private items")
+        if req.visibility == "team":
+            destination_team = owning_team
+        if not privileged:
+            membership = await team_membership(db, team_id, current_user.id)
+            if not membership or membership.role not in (TeamRole.owner, TeamRole.reviewer):
+                raise HTTPException(status_code=403, detail="Only team owners and reviewers can change visibility")
 
     if req.visibility == "team" and item_type != "agent":
         # Installs can pin any approved version of an agent, not just its latest,
@@ -233,7 +270,7 @@ async def update_registry_visibility(
             db,
             require_approved=False,
             current_user=current_user,
-            target_team_id=listing.team_id if req.visibility == "team" else None,
+            target_team_id=destination_team.id if destination_team and req.visibility == "team" else None,
             enforce_target=True,
         )
         if errors:
@@ -243,6 +280,10 @@ async def update_registry_visibility(
             )
 
     was_private = bool(listing.is_private)
+    if destination_team is not None and team_id is None:
+        listing.team_id = destination_team.id
+        listing.namespace = destination_team.handle
+        listing.owner = destination_team.handle
     listing.is_private = req.visibility == "team"
     returned_to_review = await review_publication_to_public(listing, current_user, db, was_private=was_private)
     if returned_to_review:
@@ -267,7 +308,7 @@ async def update_registry_visibility(
         "id": listing.id,
         "type": item_type,
         "qualified_name": listing.qualified_name,
-        "team_id": team_id,
+        "team_id": listing.team_id,
         "visibility": listing.visibility,
         "status": listing.status.value,
         "returned_to_review": returned_to_review,

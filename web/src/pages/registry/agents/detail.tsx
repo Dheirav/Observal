@@ -706,7 +706,9 @@ export default function AgentDetailPage({ agentId }: { agentId?: string } = {}) 
   const versionSuccessCriteria = (vd?.success_criteria ?? (selectedVersion ? undefined : a?.success_criteria)) as SuccessCriteria | null | undefined;
   const isOwner = !!(whoami?.id && a?.created_by && whoami.id === String(a.created_by));
   const canTransferOwnership = isOwner;
-  const teamRole = a?.team_id ? teams.find((team) => team.id === String(a.team_id))?.role : undefined;
+  const owningTeam = a?.team_id ? teams.find((team) => team.id === String(a.team_id)) : undefined;
+  const personalTeam = teams.find((team) => team.is_personal && team.visibility === "private");
+  const teamRole = owningTeam?.role;
   // Mirror the server rule in PATCH /registry/agent/{id}/visibility exactly. See
   // the matching comment in the component detail page: admins are privileged, a
   // global reviewer is not, a team-owned agent needs a team owner or reviewer,
@@ -717,6 +719,13 @@ export default function AgentDetailPage({ agentId }: { agentId?: string } = {}) 
         (a.team_id ? teamRole === "owner" || teamRole === "reviewer" : isOwner)),
   );
   const currentVisibility = a?.visibility ?? (a?.is_private ? "team" : "public");
+  const visibilityOptions = owningTeam?.visibility === "private"
+    ? [{ value: "team", label: "Team members only" }]
+    : [
+        { value: "public", label: "Public" },
+        { value: "team", label: "Team members only" },
+      ];
+  const showVisibilityControl = canChangeVisibility && Boolean(a?.team_id || personalTeam);
   const canManageLifecycle = isAdmin || isOwner;
   const agentStatus = a?.status as string | undefined;
   const canEdit = (isAdmin || a?.user_permission === "owner" || a?.user_permission === "edit") && ["approved", "pending", "draft", "rejected"].includes(agentStatus ?? "");
@@ -762,6 +771,11 @@ export default function AgentDetailPage({ agentId }: { agentId?: string } = {}) 
       {
         onSuccess: (data) => {
           setConfirmPublicOpen(false);
+          if (visibility === "team" && data.qualified_name.includes("/")) {
+            const [namespace, slug] = data.qualified_name.split("/", 2);
+            navigate({ to: "/agents/$namespace/$slug", params: { namespace, slug }, replace: true });
+            return;
+          }
           if (visibility !== "public") return;
           const returnedToReview = readReturnedToReview(data);
           // The shared mutation hook already raised a generic "Visibility updated"
@@ -822,7 +836,7 @@ export default function AgentDetailPage({ agentId }: { agentId?: string } = {}) 
                     handleClassName="text-sm text-muted-foreground"
                   />
                   {a.status && <StatusBadge status={a.status} />}
-                  {canChangeVisibility && (
+                  {showVisibilityControl && (
                     <PickerSelect
                       value={currentVisibility}
                       onValueChange={(value) => {
@@ -835,14 +849,14 @@ export default function AgentDetailPage({ agentId }: { agentId?: string } = {}) 
                         }
                         applyVisibility("team");
                       }}
-                      options={[
-                        { value: "public", label: "Public" },
-                        { value: "team", label: "Team members only" },
-                      ]}
+                      options={visibilityOptions}
                       ariaLabel="Agent visibility"
                       className="w-40"
                       inputClassName="h-7 px-2 text-xs"
-                      disabled={updateVisibility.isPending || !a.team_id}
+                      disabled={
+                        updateVisibility.isPending ||
+                        (owningTeam?.visibility === "private" && currentVisibility === "team")
+                      }
                     />
                   )}
                   {versions.length > 0 ? (

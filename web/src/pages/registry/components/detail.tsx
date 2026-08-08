@@ -142,7 +142,9 @@ export default function ComponentDetailPage({
     () => false,
   );
   const canEdit = isAuthenticated && (item?.user_permission === "owner");
-  const teamRole = item?.team_id ? teams.find((team) => team.id === String(item.team_id))?.role : undefined;
+  const owningTeam = item?.team_id ? teams.find((team) => team.id === String(item.team_id)) : undefined;
+  const personalTeam = teams.find((team) => team.is_personal && team.visibility === "private");
+  const teamRole = owningTeam?.role;
   // Mirror the server rule in PATCH /registry/{type}/{id}/visibility exactly.
   // Admins are privileged; a global REVIEWER is not, because a team-private
   // listing belongs to its teamspace. A team-owned listing needs a team owner or
@@ -157,6 +159,13 @@ export default function ComponentDetailPage({
   );
   const canTransferOwnership = !!(whoami?.id && item?.submitted_by && whoami.id === String(item.submitted_by));
   const currentVisibility = (item?.visibility as string | undefined) ?? (item?.is_private ? "team" : "public");
+  const visibilityOptions = owningTeam?.visibility === "private"
+    ? [{ value: "team", label: "Team members only" }]
+    : [
+        { value: "public", label: "Public" },
+        { value: "team", label: "Team members only" },
+      ];
+  const showVisibilityControl = canChangeVisibility && Boolean(item?.team_id || personalTeam);
   const [confirmPublicOpen, setConfirmPublicOpen] = useState(false);
 
   // Co-authors
@@ -216,6 +225,15 @@ export default function ComponentDetailPage({
       {
         onSuccess: (data) => {
           setConfirmPublicOpen(false);
+          if (visibility === "team" && data.qualified_name.includes("/")) {
+            const [namespace, slug] = data.qualified_name.split("/", 2);
+            navigate({
+              to: "/components/$type/$namespace/$slug",
+              params: { type, namespace, slug },
+              replace: true,
+            });
+            return;
+          }
           if (visibility !== "public") return;
           const returnedToReview = readReturnedToReview(data);
           // The shared mutation hook already raised a generic "Visibility updated"
@@ -299,7 +317,7 @@ export default function ComponentDetailPage({
                     {item.status}
                   </Badge>
                 )}
-                {canChangeVisibility && (
+                {showVisibilityControl && (
                   <PickerSelect
                     value={currentVisibility}
                     onValueChange={(value) => {
@@ -312,14 +330,14 @@ export default function ComponentDetailPage({
                       }
                       applyVisibility("team");
                     }}
-                    options={[
-                      { value: "public", label: "Public" },
-                      { value: "team", label: "Team members only" },
-                    ]}
+                    options={visibilityOptions}
                     ariaLabel="Listing visibility"
                     className="w-40"
                     inputClassName="h-7 px-2 text-xs"
-                    disabled={updateVisibility.isPending || !item.team_id}
+                    disabled={
+                      updateVisibility.isPending ||
+                      (owningTeam?.visibility === "private" && currentVisibility === "team")
+                    }
                   />
                 )}
                 {versionsForDropdown.length > 0 ? (

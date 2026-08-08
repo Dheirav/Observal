@@ -119,7 +119,7 @@ class TestResolvePublishTargetAutoApprove:
     async def test_matrix(self, user_role, team_role, visibility, expected):
         team_id = uuid.uuid4()
         db = _mock_db([_membership(team_role)])
-        db.get = AsyncMock(return_value=SimpleNamespace(id=team_id, handle="platform-tools"))
+        db.get = AsyncMock(return_value=SimpleNamespace(id=team_id, handle="platform-tools", is_private=False))
 
         target = await resolve_publish_target(
             db, _user(user_role), "Internal Tool", team_id=team_id, visibility=visibility
@@ -128,6 +128,17 @@ class TestResolvePublishTargetAutoApprove:
         assert target.namespace == "platform-tools"
         assert target.visibility == visibility
         assert target.auto_approve is expected
+
+    @pytest.mark.asyncio
+    async def test_private_team_rejects_public_publish(self):
+        team_id = uuid.uuid4()
+        db = _mock_db([_membership(TeamRole.owner)])
+        db.get = AsyncMock(return_value=SimpleNamespace(id=team_id, handle="private-tools", is_private=True))
+
+        with pytest.raises(HTTPException) as exc:
+            await resolve_publish_target(db, _user(), "Internal Tool", team_id=team_id, visibility="public")
+        assert exc.value.status_code == 409
+        assert "team-private" in exc.value.detail
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("visibility", ["public", "team"])
@@ -139,7 +150,7 @@ class TestResolvePublishTargetAutoApprove:
         """
         team_id = uuid.uuid4()
         db = _mock_db([_membership(None)])
-        db.get = AsyncMock(return_value=SimpleNamespace(id=team_id, handle="platform-tools"))
+        db.get = AsyncMock(return_value=SimpleNamespace(id=team_id, handle="platform-tools", is_private=False))
 
         with pytest.raises(HTTPException) as exc:
             await resolve_publish_target(
@@ -153,7 +164,7 @@ class TestResolvePublishTargetAutoApprove:
         """Admins keep the cross-team capability because they can still read the result."""
         team_id = uuid.uuid4()
         db = _mock_db([_membership(None)])
-        db.get = AsyncMock(return_value=SimpleNamespace(id=team_id, handle="platform-tools"))
+        db.get = AsyncMock(return_value=SimpleNamespace(id=team_id, handle="platform-tools", is_private=False))
 
         target = await resolve_publish_target(db, _user(role), "Internal Tool", team_id=team_id, visibility="team")
         # They can publish cross-team, but even admins do not skip review.
@@ -209,7 +220,7 @@ class TestSkillSubmitStatus:
         team_id = uuid.uuid4()
         # membership lookup, then the namespace/slug collision check.
         db = _mock_db([_membership(team_role), None])
-        db.get = AsyncMock(return_value=SimpleNamespace(id=team_id, handle="platform-tools"))
+        db.get = AsyncMock(return_value=SimpleNamespace(id=team_id, handle="platform-tools", is_private=False))
 
         def _refresh(obj):
             obj.id = uuid.uuid4()

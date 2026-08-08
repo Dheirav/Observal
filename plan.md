@@ -420,8 +420,10 @@ Each PR keeps the repo's conventions: SPDX headers (`reuse lint`), `ruff` + `pnp
    changed by team owners and team reviewers (plus deployment admins) via
    `PATCH /teams/{id}/visibility`, surfaced as a Make public/private button on
    the teamspace page, a private badge on cards, and
-   `observal team visibility`. Changes emit `team.visibility.changed`
-   security events.
+   `observal team visibility`. A private teamspace is a visibility ceiling:
+   it cannot publish public registry items or make owned items public, and it
+   cannot become private until its existing public items are made team-private.
+   Changes emit `team.visibility.changed` security events.
 2. **Open teamspace creation.** `POST /teams` now takes any signed-in user
    (was global reviewer+); the creator becomes owner. Creation accepts an
    initial `visibility` and the web create panel offers the choice.
@@ -433,6 +435,11 @@ Each PR keeps the repo's conventions: SPDX headers (`reuse lint`), `ruff` + `pnp
    so each release records a `reviewed_by` decision instead of silently
    skipping review. Covered by rewritten `test_team_publishing.py`
    expectations and a dedicated self-approval test in `test_team_review.py`.
+4. **Personal private publishing.** Migration 027 marks each user's one claimed
+   personal teamspace. An agent or component in a user's namespace can move to
+   team-private visibility only when that private teamspace exists; the move
+   transfers its namespace and canonical URL to the personal teamspace. The web
+   hides the private option until the user has claimed one.
 
 ## Open questions (defaults chosen, flag if you disagree)
 
