@@ -8,6 +8,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from observal_cli.main import app
@@ -49,22 +50,24 @@ def test_team_create_posts_handle_and_name():
         result = runner.invoke(app, ["team", "create", "X", "--handle", "x", "--description", "d"])
     assert result.exit_code == 0, result.output
     body = mock_post.call_args.kwargs["json_data"]
-    assert body == {"name": "X", "handle": "x", "description": "d"}
+    assert body == {"name": "X", "handle": "x", "description": "d", "visibility": "public"}
     assert mock_post.call_args.args[0] == "/api/v1/teams"
 
 
 def test_team_show_resolves_handle_to_id():
-    with patch(
-        "observal_cli.cmd_team.client.get",
-        side_effect=[_teams_all(), {"name": "SRE", "handle": "sre", "role": "owner"}, _members()],
-    ) as mock_get:
+    with (
+        patch("observal_cli.cmd_team.client.resolve_team_id", return_value="t2") as resolve,
+        patch(
+            "observal_cli.cmd_team.client.get",
+            side_effect=[{"name": "SRE", "handle": "sre", "role": "owner"}, _members()],
+        ) as mock_get,
+    ):
         result = runner.invoke(app, ["team", "show", "sre"])
     assert result.exit_code == 0, result.output
-    # First call resolves handle -> id via /teams/all, then detail + members.
+    resolve.assert_called_once_with("sre")
     paths = [call.args[0] for call in mock_get.call_args_list]
-    assert paths[0] == "/api/v1/teams/all"
-    assert paths[1] == "/api/v1/teams/t2"
-    assert paths[2] == "/api/v1/teams/t2/members"
+    assert paths[0] == "/api/v1/teams/t2"
+    assert paths[1] == "/api/v1/teams/t2/members"
     assert "SRE" in result.output
 
 
@@ -134,9 +137,45 @@ def test_team_leave_posts_leave_endpoint():
     assert mock_post.call_args.args[0] == f"/api/v1/teams/{uid}/leave"
 
 
+def test_team_invite_create_list_and_revoke():
+    uid = "11111111-1111-1111-1111-111111111111"
+    invite_id = "22222222-2222-2222-2222-222222222222"
+    with patch(
+        "observal_cli.cmd_team.client.post",
+        return_value={"url": "https://example.test/team-invites/token"},
+    ) as mock_post:
+        created = runner.invoke(app, ["team", "invite", "create", uid, "--expires-days", "2", "--max-uses", "3"])
+    assert created.exit_code == 0, created.output
+    assert mock_post.call_args.args[0] == f"/api/v1/teams/{uid}/invites"
+    assert mock_post.call_args.kwargs["json_data"] == {"expires_in_days": 2, "max_uses": 3}
+
+    with patch(
+        "observal_cli.cmd_team.client.get",
+        return_value=[
+            {
+                "id": invite_id,
+                "state": "active",
+                "use_count": 0,
+                "max_uses": 3,
+                "expires_at": "2026-12-31T00:00:00Z",
+                "invited_by_username": "owner",
+            }
+        ],
+    ) as mock_get:
+        listed = runner.invoke(app, ["team", "invite", "list", uid, "--output", "json"])
+    assert listed.exit_code == 0, listed.output
+    assert mock_get.call_args.args[0] == f"/api/v1/teams/{uid}/invites"
+    assert invite_id in listed.output
+
+    with patch("observal_cli.cmd_team.client.post", return_value={"state": "revoked"}) as mock_post:
+        revoked = runner.invoke(app, ["team", "invite", "revoke", uid, invite_id])
+    assert revoked.exit_code == 0, revoked.output
+    assert mock_post.call_args.args[0] == f"/api/v1/teams/{uid}/invites/{invite_id}/revoke"
+
+
 @pytest.mark.parametrize("bad", ["not-a-uuid", "missing-team"])
 def test_team_show_unknown_handle_errors(bad: str):
-    with patch("observal_cli.cmd_team.client.get", return_value=_teams_all()):
+    with patch("observal_cli.cmd_team.client.resolve_team_id", side_effect=typer.BadParameter("Team not found")):
         result = runner.invoke(app, ["team", "show", bad])
     assert result.exit_code != 0
 

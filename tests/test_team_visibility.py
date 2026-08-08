@@ -35,6 +35,7 @@ from models.prompt import PromptListing
 from models.sandbox import SandboxListing
 from models.skill import SkillListing
 from models.team import Team, TeamMembership, TeamMembershipRequest, TeamRole
+from models.team_invite import TeamInvite
 from models.user import User, UserRole
 
 _TABLES = [
@@ -42,6 +43,7 @@ _TABLES = [
     Team.__table__,
     TeamMembership.__table__,
     TeamMembershipRequest.__table__,
+    TeamInvite.__table__,
     InboxItem.__table__,
     InboxItemEvent.__table__,
     Agent.__table__,

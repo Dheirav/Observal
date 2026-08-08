@@ -72,6 +72,7 @@ async def test_register_disabled_returns_403():
                         "email": "new@example.com",
                         "name": "New User",
                         "password": "Str0ng!P",
+                        "invite_token": "private-team-token-cannot-create-an-account",
                     },
                 )
 

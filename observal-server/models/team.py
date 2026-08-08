@@ -106,6 +106,7 @@ class TeamMembershipRequest(Base):
             sqlite_where=text("status = 'pending'"),
         ),
         Index("ix_team_membership_requests_user_id", "user_id"),
+        Index("ix_team_membership_requests_invite_id", "invite_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -114,6 +115,9 @@ class TeamMembershipRequest(Base):
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    invite_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("team_invites.id", ondelete="RESTRICT"), nullable=True
     )
     status: Mapped[TeamJoinRequestStatus] = mapped_column(
         Enum(TeamJoinRequestStatus, name="team_join_request_status"),

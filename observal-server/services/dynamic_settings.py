@@ -120,6 +120,18 @@ async def reencrypt_on_key_rotation() -> int:
 
         from database import async_session
         from models.enterprise_config import EnterpriseConfig
+        from models.team_invite import TeamInvite
+
+        def rotated_value(stored: str | None) -> str | None:
+            if not stored or not stored.startswith(_ENC_PREFIX):
+                return None
+            ciphertext = stored[len(_ENC_PREFIX) :].encode()
+            try:
+                _get_fernet().decrypt(ciphertext)
+                return None
+            except Exception:
+                plaintext = decrypt_value(stored)
+                return encrypt_value(plaintext) if plaintext else None
 
         count = 0
         async with async_session() as session:
@@ -127,23 +139,19 @@ async def reencrypt_on_key_rotation() -> int:
                 select(EnterpriseConfig).where(EnterpriseConfig.key.in_(list(SENSITIVE_KEYS)))
             )
             for cfg in result.scalars().all():
-                if not cfg.value or not cfg.value.startswith(_ENC_PREFIX):
-                    continue
-                # Try current key: if it works, already rotated
-                ciphertext = cfg.value[len(_ENC_PREFIX) :].encode()
-                try:
-                    _get_fernet().decrypt(ciphertext)
-                    continue
-                except Exception:
-                    pass
-                # Decrypt with old key, re-encrypt with new
-                plaintext = decrypt_value(cfg.value)
-                if plaintext:
-                    cfg.value = encrypt_value(plaintext)
+                rotated = rotated_value(cfg.value)
+                if rotated:
+                    cfg.value = rotated
+                    count += 1
+            invites = await session.scalars(select(TeamInvite).where(TeamInvite.token_encrypted.is_not(None)))
+            for invite in invites:
+                rotated = rotated_value(invite.token_encrypted)
+                if rotated:
+                    invite.token_encrypted = rotated
                     count += 1
             if count > 0:
                 await session.commit()
-                optic.info("dynamic settings re-encrypted count={}", count)
+                optic.info("encrypted values re-encrypted count={}", count)
         return count
     except Exception:
         optic.exception("dynamic settings re-encryption failed")

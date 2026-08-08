@@ -39,12 +39,43 @@ export interface TeamMemberUpsertBody {
 	role?: TeamRole;
 }
 
+export type TeamInviteState = "active" | "expired" | "revoked" | "exhausted";
+
+export interface TeamInvite {
+	id: string;
+	team_id: string;
+	name: string;
+	url?: string | null;
+	invited_by_username?: string | null;
+	max_uses?: number | null;
+	use_count: number;
+	expires_at: string;
+	revoked_at?: string | null;
+	created_at?: string | null;
+	state: TeamInviteState;
+}
+
+export interface TeamInviteCreated extends TeamInvite {
+	token: string;
+	url: string;
+}
+
+export interface TeamInvitePreview {
+	valid: boolean;
+	team_id?: string | null;
+	team_name?: string | null;
+	team_handle?: string | null;
+	team_description?: string | null;
+	invited_by?: string | null;
+}
+
 export type TeamJoinRequestStatus = "pending" | "approved" | "rejected" | "cancelled";
 
 export interface TeamJoinRequest {
 	id: string;
 	team_id: string;
 	user_id: string;
+	invite_id?: string | null;
 	email?: string | null;
 	username?: string | null;
 	name?: string | null;

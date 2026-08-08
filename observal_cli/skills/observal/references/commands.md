@@ -213,6 +213,10 @@ Every command available in the installed CLI. This block is generated from the T
 
 **`observal team`**: Manage teamspaces: creation, membership, and listing.
 
+- `observal team invite`: Manage private-team invitation links.
+  - `observal team invite create`: Create a private-team invitation link. Owner or global admin only.
+  - `observal team invite list`: List invitation links for a private teamspace.
+  - `observal team invite revoke`: Revoke a private-team invitation link. Owner or global admin only.
 - `observal team members`: Manage team membership.
   - `observal team members add`: Add or update a team member. Owner or admin only.
   - `observal team members list`: List members of a teamspace.

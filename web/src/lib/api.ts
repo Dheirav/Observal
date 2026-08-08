@@ -70,10 +70,11 @@ import type {
 	ExecTimeToValueResponse,
 	ExecAIInsightsResponse,
 	UserSearchResult,
-	AdminInvite,
-	AdminInviteCreated,
 	RegistryResolution,
 	Team,
+	TeamInvite,
+	TeamInviteCreated,
+	TeamInvitePreview,
 	TeamJoinRequest,
 	TeamJoinRequestStatus,
 	TeamMember,
@@ -388,12 +389,7 @@ export const auth = {
 			"/auth/login",
 			body,
 		),
-	invitePreview: (token: string) =>
-		post<{ valid: boolean; invited_by: string | null; next_path: string | null }>(
-			"/auth/invite/preview",
-			{ token },
-		),
-	register: (body: { email: string; name: string; username?: string; password: string; invite_token?: string }) =>
+	register: (body: { email: string; name: string; username?: string; password: string }) =>
 		post<AuthResponse>("/auth/register", body),
 	whoami: () =>
 		get<{
@@ -610,9 +606,19 @@ export const teams = {
 	) => post<TeamMember>(`/teams/${id}/members`, body),
 	removeMember: (id: string, userId: string) => del(`/teams/${id}/members/${userId}`),
 	leave: (id: string) => post(`/teams/${id}/leave`),
+	invites: (id: string) => get<TeamInvite[]>(`/teams/${id}/invites`),
+	createInvite: (id: string, body: { name?: string; expires_in_days?: number; max_uses?: number | null }) =>
+		post<TeamInviteCreated>(`/teams/${id}/invites`, body),
+	revokeInvite: (teamId: string, inviteId: string) =>
+		post<TeamInvite>(`/teams/${teamId}/invites/${inviteId}/revoke`),
+	deleteInvite: (teamId: string, inviteId: string) => del(`/teams/${teamId}/invites/${inviteId}`),
+	inviteRequests: (teamId: string, inviteId: string) =>
+		get<TeamJoinRequest[]>(`/teams/${teamId}/invites/${inviteId}/requests`),
+	previewInvite: (token: string) =>
+		post<TeamInvitePreview>("/teams/invites/preview", { token }),
 	// Membership join requests: a shared teamspace link leads to an explicit
 	// request; only an owner's approval changes the roster.
-	requestJoin: (id: string, body: { message?: string }) =>
+	requestJoin: (id: string, body: { message?: string; invite_token?: string }) =>
 		post<TeamJoinRequest>(`/teams/${id}/join-requests`, body),
 	joinRequests: (id: string, status?: TeamJoinRequestStatus) =>
 		get<TeamJoinRequest[]>(`/teams/${id}/join-requests${status ? `?status=${status}` : ""}`),
@@ -709,10 +715,6 @@ export const feedback = {
 export const admin = {
 	settings: () =>
 		get<AdminSetting[] | Record<string, string>>("/admin/settings"),
-	invites: () => get<AdminInvite[]>("/admin/invites"),
-	createInvite: (body: { expires_in_days?: number; max_uses?: number | null; next_path?: string }) =>
-		post<AdminInviteCreated>("/admin/invites", body),
-	revokeInvite: (id: string) => post<AdminInvite>(`/admin/invites/${id}/revoke`),
 	settingsSchema: () => get<AdminSettingSection[]>("/admin/settings/schema"),
 	updateSetting: (key: string, body: unknown) =>
 		put<unknown>(`/admin/settings/${key}`, body),
