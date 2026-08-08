@@ -106,7 +106,7 @@ def create_team(
 
     The handle is reserved across users and teams, so it must not collide with
     an existing username or team handle. A private teamspace is hidden from
-    users who are not members (admins and global reviewers still see it).
+    users who are not members. Deployment admins retain operational access.
 
     Examples:
 
@@ -133,11 +133,11 @@ def set_visibility(
     team: str = typer.Argument(help="Team UUID or handle."),
     visibility: str = typer.Argument(help="public | private"),
 ):
-    """Change a teamspace's visibility. Team owners, team reviewers, and deployment admins.
+    """Change a teamspace's visibility. Team owners and deployment admins only.
 
-    A private teamspace is hidden from users who are not members; members,
-    admins, and global reviewers keep seeing it. Listings keep their own
-    visibility and are unaffected.
+    A private teamspace is hidden from users who are not members. Deployment
+    admins retain operational access. Personal teamspaces are always private.
+    Listings keep their own visibility and are unaffected.
 
     Examples:
 

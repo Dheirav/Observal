@@ -1,4 +1,5 @@
 # SPDX-FileCopyrightText: 2026 Lokesh Selvam <lokeshselvam7025@gmail.com>
+# SPDX-FileCopyrightText: 2026 Hari Srinivasan <harisrini21@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 
 """Private-team invitation links never create accounts or memberships directly."""
@@ -196,6 +197,13 @@ async def test_authenticated_recipient_previews_and_requests_access(sessions):
     assert audit.json()[0]["status"] == "pending"
     assert delete_used.status_code == 409
 
+    async with _client(sessions, outsider) as client:
+        durable = await client.post("/api/v1/teams/invites/preview", json={"token": token})
+    assert durable.json()["valid"] is False
+    assert durable.json()["invite_state"] == "exhausted"
+    assert durable.json()["team_handle"] == team.handle
+    assert durable.json()["request"]["status"] == "pending"
+
     async with sessions() as db:
         membership = (
             await db.execute(
@@ -221,6 +229,46 @@ async def test_authenticated_recipient_previews_and_requests_access(sessions):
         )
     assert exhausted_preview.json()["valid"] is False
     assert exhausted_request.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_invite_preview_persists_cancelled_rejected_and_approved_status(sessions):
+    owner, outsider, _admin, team = await _seed(sessions)
+    async with _client(sessions, owner) as client:
+        created = await _create(client, team.id, max_uses=5)
+    token = created.json()["token"]
+
+    async with _client(sessions, outsider) as client:
+        first = await client.post(f"/api/v1/teams/{team.id}/join-requests", json={"invite_token": token})
+        pending = await client.post("/api/v1/teams/invites/preview", json={"token": token})
+        cancelled = await client.delete(f"/api/v1/teams/{team.id}/join-requests/{first.json()['id']}")
+        cancelled_preview = await client.post("/api/v1/teams/invites/preview", json={"token": token})
+        second = await client.post(f"/api/v1/teams/{team.id}/join-requests", json={"invite_token": token})
+    assert pending.json()["request"]["status"] == "pending"
+    assert cancelled.status_code == 204
+    assert cancelled_preview.json()["request"]["status"] == "cancelled"
+
+    async with _client(sessions, owner) as client:
+        rejected = await client.post(
+            f"/api/v1/teams/{team.id}/join-requests/{second.json()['id']}/reject",
+            json={"reason": "Not yet"},
+        )
+    assert rejected.status_code == 200
+
+    async with _client(sessions, outsider) as client:
+        rejected_preview = await client.post("/api/v1/teams/invites/preview", json={"token": token})
+        third = await client.post(f"/api/v1/teams/{team.id}/join-requests", json={"invite_token": token})
+    assert rejected_preview.json()["request"]["status"] == "rejected"
+    assert rejected_preview.json()["request"]["decision_reason"] == "Not yet"
+
+    async with _client(sessions, owner) as client:
+        approved = await client.post(f"/api/v1/teams/{team.id}/join-requests/{third.json()['id']}/approve")
+    assert approved.status_code == 200
+
+    async with _client(sessions, outsider) as client:
+        approved_preview = await client.post("/api/v1/teams/invites/preview", json={"token": token})
+    assert approved_preview.json()["request"]["status"] == "approved"
+    assert approved_preview.json()["team_handle"] == team.handle
 
 
 @pytest.mark.asyncio
@@ -271,12 +319,8 @@ async def test_invalid_exhausted_or_revoked_invite_cannot_reveal_private_team(se
                 f"/api/v1/teams/{team.id}/join-requests",
                 json={"invite_token": token},
             )
-            assert preview.json() == {
-                "valid": False,
-                "team_id": None,
-                "team_name": None,
-                "team_handle": None,
-                "team_description": None,
-                "invited_by": None,
-            }
+            assert preview.json()["valid"] is False
+            assert preview.json()["team_id"] is None
+            assert preview.json()["request"] is None
+            assert preview.json()["invite_state"] == (None if token == "missing" else token)
             assert request.status_code == 404

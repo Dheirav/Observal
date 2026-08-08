@@ -33,7 +33,7 @@ from models.mcp import ListingStatus, McpListing, McpVersion
 from models.prompt import PromptListing, PromptVersion
 from models.sandbox import SandboxListing, SandboxVersion
 from models.skill import SkillListing, SkillVersion
-from models.team import Team, TeamRole
+from models.team import Team, TeamMembership, TeamRole
 from models.user import User, UserRole
 from services.inbox import sources as inbox
 from services.registry_namespace import identity_exists
@@ -178,6 +178,12 @@ async def update_registry_visibility(
             destination_team = (
                 await db.execute(
                     select(Team)
+                    .join(
+                        TeamMembership,
+                        (TeamMembership.team_id == Team.id)
+                        & (TeamMembership.user_id == current_user.id)
+                        & (TeamMembership.role == TeamRole.owner),
+                    )
                     .where(
                         Team.created_by == current_user.id,
                         Team.is_personal.is_(True),

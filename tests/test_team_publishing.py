@@ -141,6 +141,44 @@ class TestResolvePublishTargetAutoApprove:
         assert "team-private" in exc.value.detail
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("team_role", [None, TeamRole.member, TeamRole.reviewer])
+    async def test_personal_publish_requires_active_creator_owner(self, team_role):
+        team_id = uuid.uuid4()
+        creator = _user()
+        db = _mock_db([_membership(team_role)])
+        db.get = AsyncMock(
+            return_value=SimpleNamespace(
+                id=team_id,
+                handle="personal-tools",
+                is_private=True,
+                is_personal=True,
+                created_by=creator.id,
+            )
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            await resolve_publish_target(db, creator, "Internal Tool", team_id=team_id, visibility="team")
+        assert exc.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_personal_creator_owner_may_publish(self):
+        team_id = uuid.uuid4()
+        creator = _user()
+        db = _mock_db([_membership(TeamRole.owner)])
+        db.get = AsyncMock(
+            return_value=SimpleNamespace(
+                id=team_id,
+                handle="personal-tools",
+                is_private=True,
+                is_personal=True,
+                created_by=creator.id,
+            )
+        )
+
+        target = await resolve_publish_target(db, creator, "Internal Tool", team_id=team_id, visibility="team")
+        assert target.namespace == "personal-tools"
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("visibility", ["public", "team"])
     async def test_global_reviewer_cannot_publish_into_a_team_they_are_not_in(self, visibility):
         """Publishing cross-team is an admin capability, not a reviewer one.

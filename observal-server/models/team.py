@@ -7,7 +7,7 @@ import enum
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,6 +24,7 @@ class Team(Base):
     __tablename__ = "teams"
     __table_args__ = (
         UniqueConstraint("handle", name="uq_teams_handle"),
+        CheckConstraint("NOT is_personal OR is_private", name="ck_teams_personal_private"),
         Index("ix_teams_created_by", "created_by"),
         Index(
             "uq_teams_personal_created_by",
@@ -38,9 +39,8 @@ class Team(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     handle: Mapped[str] = mapped_column(String(32), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # A private teamspace is hidden from plain users who are not members;
-    # members, global reviewers, admins, and super_admins still see it. Same
-    # column shape as the listings so `visibility` reads identically everywhere.
+    # A private teamspace is visible only to members and deployment admins.
+    # Same column shape as listings so `visibility` reads identically everywhere.
     is_private: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     is_personal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
