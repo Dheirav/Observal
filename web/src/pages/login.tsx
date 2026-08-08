@@ -96,9 +96,9 @@ function LoginContent() {
     const hasToken = !!sessionStorage.getItem("observal_access_token");
     if (hasToken && getUserRole()) {
       // Already signed in: honor a shared-link `next` instead of always going home.
-      window.location.replace(safeNext(params.get("next")));
+      window.location.replace(safeNext(searchParams.next));
     }
-  }, [router]);
+  }, [router, searchParams.next]);
 
   useEffect(() => {
     const samlTokenId = searchParams.saml_token;
