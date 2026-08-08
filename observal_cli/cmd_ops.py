@@ -1770,10 +1770,29 @@ def downgrade(
     except UpgradeLockError as e:
         rprint(f"[red]{e}[/red]")
         raise typer.Exit(1)
+
+    # Releases before v1.10.4 silently auto-updated on startup. Pin their
+    # legacy setting before installation so the next command cannot undo an
+    # intentional downgrade. Restore the prior value if installation fails.
+    pin_legacy_auto_update = target < Version("1.10.4")
+    previous_auto_update = None
     try:
+        if pin_legacy_auto_update:
+            previous_auto_update = config.load().get("auto_update", True)
+            config.save({"auto_update": False})
         _do_install(install, version, direction="downgrade")
+    except BaseException:
+        if pin_legacy_auto_update:
+            try:
+                config.save({"auto_update": previous_auto_update})
+            except Exception as restore_error:
+                rprint(f"[yellow]Warning: could not restore auto-update setting: {restore_error}[/yellow]")
+        raise
     finally:
         release_lock(lock)
+
+    if pin_legacy_auto_update:
+        rprint("[dim]Automatic updates disabled to keep this legacy version pinned.[/dim]")
 
 
 @self_app.command()

@@ -63,6 +63,15 @@ def mock_lock(monkeypatch, tmp_path):
     monkeypatch.setattr("observal_cli.upgrade_lock.CONFIG_DIR", tmp_path)
 
 
+@pytest.fixture
+def mock_auto_update_config(monkeypatch):
+    """Keep downgrade pinning isolated from the user's real config."""
+    state = {}
+    monkeypatch.setattr("observal_cli.cmd_ops.config.load", lambda: state.copy())
+    monkeypatch.setattr("observal_cli.cmd_ops.config.save", lambda updates: state.update(updates))
+    return state
+
+
 def _get_app():
     """Import the app fresh (avoids circular import issues in tests)."""
     from observal_cli.main import app
@@ -129,7 +138,7 @@ class TestSelfDowngrade:
         result = runner.invoke(app, ["self", "downgrade", "--version", "1.3.0"])
         assert "not older" in result.output.lower() or "upgrade" in result.output.lower()
 
-    def test_downgrade_pipx_install(self, mock_version, mock_lock, monkeypatch):
+    def test_downgrade_pipx_install(self, mock_version, mock_lock, mock_auto_update_config, monkeypatch):
         from observal_cli.install_detector import InstallInfo, InstallMethod
 
         info = InstallInfo(InstallMethod.PIPX, Path("/home/user/.local/bin/observal"), True, "pipx")
@@ -144,8 +153,10 @@ class TestSelfDowngrade:
         result = runner.invoke(app, ["self", "downgrade", "--version", "1.1.0", "--force"])
         assert result.exit_code == 0
         assert install_called == {"i": info, "target": "1.1.0", "direction": "downgrade"}
+        assert mock_auto_update_config["auto_update"] is False
+        assert "legacy version pinned" in result.output
 
-    def test_downgrade_curl_install(self, mock_version, mock_lock, monkeypatch):
+    def test_downgrade_curl_install(self, mock_version, mock_lock, mock_auto_update_config, monkeypatch):
         from observal_cli.install_detector import InstallInfo, InstallMethod
 
         info = InstallInfo(InstallMethod.BINARY, Path("/usr/local/bin/observal"), True, "curl")
@@ -160,6 +171,80 @@ class TestSelfDowngrade:
         result = runner.invoke(app, ["self", "downgrade", "--version", "1.1.0", "--force"])
         assert result.exit_code == 0
         assert install_called == {"i": info, "target": "1.1.0", "direction": "downgrade"}
+        assert mock_auto_update_config["auto_update"] is False
+
+    def test_downgrade_restores_auto_update_when_install_fails(
+        self, mock_version, mock_install_uv, mock_lock, mock_auto_update_config, monkeypatch
+    ):
+        mock_auto_update_config["auto_update"] = True
+
+        def fail_install(*args, **kwargs):
+            raise RuntimeError("install failed")
+
+        monkeypatch.setattr("observal_cli.cmd_ops._do_install", fail_install)
+
+        result = runner.invoke(_get_app(), ["self", "downgrade", "--version", "1.1.0", "--force"])
+
+        assert result.exit_code != 0
+        assert mock_auto_update_config["auto_update"] is True
+
+    def test_modern_downgrade_does_not_change_auto_update(
+        self, mock_install_uv, mock_lock, mock_auto_update_config, monkeypatch
+    ):
+        monkeypatch.setattr("observal_cli.version_check.get_current_version", lambda: "1.11.0")
+        mock_auto_update_config["auto_update"] = True
+        monkeypatch.setattr("observal_cli.cmd_ops._do_install", lambda *args, **kwargs: None)
+
+        result = runner.invoke(_get_app(), ["self", "downgrade", "--version", "1.10.4", "--force"])
+
+        assert result.exit_code == 0
+        assert mock_auto_update_config["auto_update"] is True
+        assert "legacy version pinned" not in result.output
+
+
+class TestInstallVerification:
+    def test_verify_install_checks_target_executable(self, monkeypatch, capsys):
+        from subprocess import CompletedProcess
+
+        from observal_cli.install_detector import InstallInfo, InstallMethod
+        from observal_cli.upgrade_executor import _verify_install
+
+        info = InstallInfo(InstallMethod.UV_TOOL, Path("/tools/observal"), True, "uv")
+        run_calls = []
+
+        def mock_run(command, **kwargs):
+            run_calls.append(command)
+            return CompletedProcess(command, 0, stdout="observal 1.9.6\n", stderr="")
+
+        monkeypatch.setattr("observal_cli.upgrade_executor.subprocess.run", mock_run)
+
+        _verify_install(info, "1.9.6", "downgrade")
+
+        assert run_calls == [["/tools/observal", "--version"]]
+        assert "Downgraded to v1.9.6" in capsys.readouterr().out
+
+    def test_verify_install_rejects_wrong_version(self, monkeypatch, capsys):
+        from subprocess import CompletedProcess
+
+        import typer
+
+        from observal_cli.install_detector import InstallInfo, InstallMethod
+        from observal_cli.upgrade_executor import _verify_install
+
+        info = InstallInfo(InstallMethod.UV_TOOL, Path("/tools/observal"), True, "uv")
+        monkeypatch.setattr(
+            "observal_cli.upgrade_executor.subprocess.run",
+            lambda command, **kwargs: CompletedProcess(command, 0, stdout="observal 1.11.0\n", stderr=""),
+        )
+
+        with pytest.raises(typer.Exit):
+            _verify_install(info, "1.9.6", "downgrade")
+
+        output = capsys.readouterr().out
+        assert "expected v1.9.6" in output
+        assert "reports" in output
+        assert "v1.11.0" in output
+        assert "/tools/observal" in output
 
 
 class TestSelfRollback:
