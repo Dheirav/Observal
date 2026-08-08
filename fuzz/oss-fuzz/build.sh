@@ -21,20 +21,21 @@
 # SPDX-FileCopyrightText: 2026 RAWx18 <rawx18.dev@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 
-# Installs observal_cli and observal_shared plus their runtime dependencies.
-pip3 install --no-cache-dir .
-
-# The FastAPI server is not packaged; it is imported from the tree, exactly as
-# tests/conftest.py does. PyInstaller needs the same path to resolve `services`.
-# observal_shared reads its model catalogue with importlib.resources, so those
-# JSON files have to be collected explicitly.
-FUZZ_DIR="$SRC/observal/fuzz"
-SERVER_DIR="$SRC/observal/observal-server"
+# The fuzz targets import directly from the checkout. PyInstaller needs each
+# source root and the model catalogue used by observal_shared.
+REPO_DIR="$SRC/observal"
+FUZZ_DIR="$REPO_DIR/fuzz"
+SERVER_DIR="$REPO_DIR/observal-server"
+SHARED_DIR="$REPO_DIR/packages/observal-shared"
 
 for fuzzer in "$FUZZ_DIR"/*_fuzzer.py; do
   target="$(basename -s .py "$fuzzer")"
 
-  compile_python_fuzzer "$fuzzer" --paths="$SERVER_DIR" --collect-data=observal_shared
+  compile_python_fuzzer "$fuzzer" \
+    --paths="$REPO_DIR" \
+    --paths="$SERVER_DIR" \
+    --paths="$SHARED_DIR" \
+    --add-data="$SHARED_DIR/observal_shared/harness_models:observal_shared/harness_models"
 
   if [[ -d "$FUZZ_DIR/corpus/$target" ]]; then
     zip -j "$OUT/${target}_seed_corpus.zip" "$FUZZ_DIR/corpus/$target"/*

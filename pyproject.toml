@@ -134,6 +134,11 @@ skips = [
 ]
 
 [dependency-groups]
+fuzz = [
+    "hypothesis==6.152.1",
+    "loguru==0.7.3",
+    "orjson==3.11.9",
+]
 dev = [
     "fastapi>=0.135.3",
     "pydantic>=2.12.5",
