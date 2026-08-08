@@ -1,17 +1,20 @@
 // SPDX-FileCopyrightText: 2026 Hari Srinivasan <harisrini21@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useState } from "react";
 import {
 	ArrowLeft,
+	Ban,
 	Bot,
 	Building2,
 	Check,
 	ClipboardCheck,
 	Clock,
+	Copy,
+	Link2,
 	Loader2,
 	Lock,
 	LogOut,
@@ -48,6 +51,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PickerSelect } from "@/components/ui/picker-select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -56,9 +60,11 @@ import { ShareLinkButton } from "@/components/registry/share-link-button";
 import {
 	useCancelJoinRequest,
 	useComponentSaveDraft,
+	useCreateTeamInvite,
 	useComponentSubmit,
 	useDecideJoinRequest,
 	useDeleteTeam,
+	useDeleteTeamInvite,
 	useJoinRequests,
 	useLeaveTeam,
 	useMyJoinRequests,
@@ -66,16 +72,27 @@ import {
 	useRemoveTeamMember,
 	useRequestJoin,
 	useReviewAction,
+	useRevokeTeamInvite,
 	useTeamByHandle,
+	useTeamInviteRequests,
+	useTeamInvites,
 	useTeamMembers,
 	useTeamReviewQueue,
 	useUpdateTeamVisibility,
 	useUpsertTeamMember,
 } from "@/hooks/use-api";
 import { hasMinRole } from "@/hooks/use-role-guard";
-import { useDeploymentConfig } from "@/hooks/use-deployment-config";
-import { admin, getUserRole, type RegistryType } from "@/lib/api";
-import type { RegistryItem, ReviewItem, Team, TeamJoinRequest, TeamMember, TeamRole } from "@/lib/types";
+import { getUserRole, type RegistryType } from "@/lib/api";
+import type {
+	RegistryItem,
+	ReviewItem,
+	Team,
+	TeamInvite,
+	TeamInviteCreated,
+	TeamJoinRequest,
+	TeamMember,
+	TeamRole,
+} from "@/lib/types";
 import { cn, copyToClipboard } from "@/lib/utils";
 
 const ROLE_OPTIONS = [
@@ -532,35 +549,6 @@ function ReviewTab({
 }
 
 /**
- * Global-admin shortcut: mint an invite-to-Observal link that lands a brand
- * new person on this teamspace page after account creation — where they still
- * have to Request to join.
- */
-function TeamInviteLinkButton({ handle }: { handle: string }) {
-	const { ssoOnly } = useDeploymentConfig();
-	const mint = useMutation({
-		mutationFn: () => admin.createInvite({ next_path: `/teamspaces/${handle}` }),
-		onSuccess: async (data) => {
-			try {
-				await copyToClipboard(data.url);
-				toast.success("Invite link copied — new users land on this teamspace after sign-up");
-			} catch {
-				toast.error("Invite created, but the link could not be copied. Find it in Users → Invite links.");
-			}
-		},
-		onError: (err: Error) => toast.error(err.message || "Failed to create the invite"),
-	});
-	// Invite links create password accounts, which the server refuses on
-	// SSO-only deployments; hide the shortcut there rather than offer a 400.
-	if (ssoOnly || !hasMinRole(getUserRole(), "admin")) return null;
-	return (
-		<Button variant="outline" size="sm" onClick={() => mint.mutate()} disabled={mint.isPending}>
-			<Ticket className="mr-1.5 h-3.5 w-3.5" /> Invite link
-		</Button>
-	);
-}
-
-/**
  * Public/private toggle, GitHub-style. Team owners and team reviewers hold it
  * (plus global admins). Going private hides the teamspace from non-member
  * plain users everywhere; members, admins, and global reviewers keep access.
@@ -690,6 +678,223 @@ function JoinRequestControl({ team }: { team: Team }) {
 		</>
 	);
 }
+
+function CreateTeamInviteDialogs({
+	team,
+	open,
+	onOpenChange,
+}: {
+	team: Team;
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+}) {
+	const createInvite = useCreateTeamInvite(team.id);
+	const [name, setName] = useState("");
+	const [expiresDays, setExpiresDays] = useState("7");
+	const [maxUses, setMaxUses] = useState("5");
+	const [minted, setMinted] = useState<TeamInviteCreated | null>(null);
+
+	async function copyInvite(url: string) {
+		try {
+			await copyToClipboard(url);
+			toast.success("Invite link copied");
+		} catch {
+			toast.error("Could not copy the invite link");
+		}
+	}
+
+	return (
+		<>
+			<Dialog open={open} onOpenChange={onOpenChange}>
+				<DialogContent>
+					<DialogHeader><DialogTitle>New private-team invite</DialogTitle></DialogHeader>
+					<p className="text-sm text-muted-foreground">
+						Choose how long the link works and how many access requests it accepts. Each creation makes a new link.
+					</p>
+					<div className="space-y-3">
+						<div className="space-y-1.5">
+							<Label htmlFor="team-invite-name">Name</Label>
+							<Input id="team-invite-name" value={name} maxLength={100} onChange={(event) => setName(event.target.value)} placeholder="Recruiting email" />
+						</div>
+						<div className="space-y-1.5">
+							<Label htmlFor="team-invite-expiry">Valid for this many days</Label>
+							<Input id="team-invite-expiry" type="number" min={1} max={365} value={expiresDays} onChange={(event) => setExpiresDays(event.target.value)} />
+						</div>
+						<div className="space-y-1.5">
+							<Label htmlFor="team-invite-uses">Maximum access requests</Label>
+							<Input id="team-invite-uses" type="number" min={1} max={10000} value={maxUses} onChange={(event) => setMaxUses(event.target.value)} />
+						</div>
+					</div>
+					<DialogFooter>
+						<Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+						<Button disabled={createInvite.isPending} onClick={() => createInvite.mutate({
+							name: name.trim() || undefined,
+							expires_in_days: Math.max(1, Math.min(365, Number(expiresDays) || 7)),
+							max_uses: Math.max(1, Math.min(10000, Number(maxUses) || 5)),
+						}, { onSuccess: (invite) => { onOpenChange(false); setMinted(invite); setName(""); } })}>
+							{createInvite.isPending && <Loader2 className="animate-spin" />} Create invite
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+
+			<Dialog open={!!minted} onOpenChange={(nextOpen) => { if (!nextOpen) setMinted(null); }}>
+				<DialogContent>
+					<DialogHeader><DialogTitle>Invite link created</DialogTitle></DialogHeader>
+					<code className="block break-all rounded-md border bg-background px-3 py-2 text-xs">{minted?.url}</code>
+					{minted && (
+						<p className="text-xs text-muted-foreground">
+							Valid until {new Date(minted.expires_at).toLocaleString()} for up to {minted.max_uses ?? "unlimited"} access requests. Copy it now because the plaintext link is not stored.
+						</p>
+					)}
+					<DialogFooter>
+						<Button variant="outline" onClick={() => setMinted(null)}>Done</Button>
+						<Button onClick={() => minted && copyInvite(minted.url)}><Copy /> Copy link</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+		</>
+	);
+}
+
+function InviteAuditDialog({
+	team,
+	invite,
+	onClose,
+}: {
+	team: Team;
+	invite: TeamInvite | null;
+	onClose: () => void;
+}) {
+	const requests = useTeamInviteRequests(team.id, invite?.id);
+	return (
+		<Dialog open={!!invite} onOpenChange={(open) => { if (!open) onClose(); }}>
+			<DialogContent className="max-w-2xl">
+				<DialogHeader><DialogTitle>{invite?.name ?? "Invite usage"}</DialogTitle></DialogHeader>
+				<p className="text-xs text-muted-foreground">
+					Each access request consumes one use. Approval is still required before membership is granted.
+				</p>
+				<div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+					{requests.isLoading ? (
+						<TableSkeleton rows={3} cols={3} />
+					) : requests.isError ? (
+						<ErrorState message={requests.error?.message} onRetry={() => requests.refetch()} />
+					) : (requests.data ?? []).length === 0 ? (
+						<EmptyState icon={Users} title="No access requests" description="Nobody has used this invite yet." />
+					) : (
+						(requests.data ?? []).map((request) => (
+							<div key={request.id} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-xs">
+								<div className="min-w-0">
+									<p className="truncate font-medium">{requesterLabel(request)}</p>
+									<p className="text-muted-foreground">
+										Requested {request.created_at ? new Date(request.created_at).toLocaleString() : "access"}
+									</p>
+								</div>
+								<Badge variant="outline" className="shrink-0 capitalize">{request.status}</Badge>
+							</div>
+						))
+					)}
+				</div>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+function InviteLinksTab({ team }: { team: Team }) {
+	const invites = useTeamInvites(team.id);
+	const revokeInvite = useRevokeTeamInvite(team.id);
+	const deleteInvite = useDeleteTeamInvite(team.id);
+	const [createOpen, setCreateOpen] = useState(false);
+	const [auditInvite, setAuditInvite] = useState<TeamInvite | null>(null);
+	const [deleteTarget, setDeleteTarget] = useState<TeamInvite | null>(null);
+
+	async function copyInvite(url: string) {
+		try {
+			await copyToClipboard(url);
+			toast.success("Invite link copied");
+		} catch {
+			toast.error("Could not copy the invite link");
+		}
+	}
+
+	return (
+		<div className="space-y-4">
+			<div className="flex items-center justify-between gap-3">
+				<div>
+					<h3 className="text-sm font-medium">Private-team invite links</h3>
+					<p className="text-xs text-muted-foreground">
+						Recipients sign in first, then explicitly request access for an owner to approve.
+					</p>
+				</div>
+				<Button size="sm" onClick={() => setCreateOpen(true)}>
+					<Link2 /> New invite
+				</Button>
+			</div>
+
+			{invites.isLoading ? (
+				<TableSkeleton rows={3} cols={3} />
+			) : invites.isError ? (
+				<ErrorState message={invites.error?.message} onRetry={() => invites.refetch()} />
+			) : (invites.data ?? []).length === 0 ? (
+				<EmptyState icon={Ticket} title="No invite links" description="Create a link when someone needs to request access to this private teamspace." />
+			) : (
+				<div className="max-h-[28rem] divide-y divide-border/70 overflow-y-auto rounded-lg border border-border/80">
+					{(invites.data ?? []).map((invite) => (
+						<div key={invite.id} className="flex items-center gap-2 px-3 py-3 text-xs">
+							<button type="button" title="View access request audit" className="min-w-0 flex-1 text-left" onClick={() => setAuditInvite(invite)}>
+								<div className="flex flex-wrap items-center gap-2">
+									<span className="font-medium text-foreground">{invite.name}</span>
+									<Badge variant="outline" className="capitalize">{invite.state}</Badge>
+									<span className="text-muted-foreground">
+										{invite.use_count}{invite.max_uses != null ? ` / ${invite.max_uses}` : ""} used
+									</span>
+									<span className="text-muted-foreground">expires {new Date(invite.expires_at).toLocaleDateString()}</span>
+									{invite.invited_by_username && <span className="text-muted-foreground">by @{invite.invited_by_username}</span>}
+								</div>
+								<code className="mt-1 block truncate text-[11px] text-muted-foreground">
+									{invite.url ?? "Link unavailable for this older invite"}
+								</code>
+							</button>
+							<div className="flex shrink-0 items-center gap-1">
+								<Button variant="ghost" size="icon" title={invite.state === "active" ? "Copy invite link" : "Only active links can be copied"} disabled={!invite.url || invite.state !== "active"} onClick={() => invite.url && copyInvite(invite.url)}>
+									<Copy />
+								</Button>
+								{invite.state === "active" && (
+									<Button variant="ghost" size="sm" onClick={() => revokeInvite.mutate(invite.id)} disabled={revokeInvite.isPending}>
+										<Ban /> Revoke
+									</Button>
+								)}
+								{invite.use_count === 0 && (
+									<Button variant="ghost" size="icon" title="Delete unused invite" onClick={() => setDeleteTarget(invite)}>
+										<Trash2 />
+									</Button>
+								)}
+							</div>
+						</div>
+					))}
+				</div>
+			)}
+
+			<CreateTeamInviteDialogs team={team} open={createOpen} onOpenChange={setCreateOpen} />
+			<InviteAuditDialog team={team} invite={auditInvite} onClose={() => setAuditInvite(null)} />
+			<AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Delete {deleteTarget?.name}?</AlertDialogTitle>
+						<AlertDialogDescription>This unused link will stop working immediately.</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction onClick={() => deleteTarget && deleteInvite.mutate(deleteTarget.id, { onSuccess: () => setDeleteTarget(null) })}>
+							Delete invite
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+		</div>
+	);
+}
+
 
 /**
  * Join requests with approve/reject actions and decision history rendered
@@ -870,6 +1075,7 @@ export default function TeamspaceDetailPage() {
 	const { team, isLoading, isError, error, refetch, notFound } = useTeamByHandle(handle);
 	const leaveTeam = useLeaveTeam();
 	const deleteTeam = useDeleteTeam();
+	const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
 	const [deleteOpen, setDeleteOpen] = useState(false);
 	const [componentDialogOpen, setComponentDialogOpen] = useState(false);
 
@@ -880,6 +1086,7 @@ export default function TeamspaceDetailPage() {
 	// Membership requests are owners-and-admins only — a narrower audience than
 	// the listing Review tab, which team reviewers also see.
 	const canManageRequests = team?.role === "owner" || hasMinRole(getUserRole(), "admin");
+	const canManageInvites = team?.visibility === "private" && canManageRequests;
 	const joinRequestsQuery = useJoinRequests(team?.id, canManageRequests);
 	const joinRequests = joinRequestsQuery.data ?? [];
 	const pendingJoinCount = joinRequests.filter((request) => request.status === "pending").length;
@@ -890,6 +1097,7 @@ export default function TeamspaceDetailPage() {
 		{ value: "members", label: "Members" },
 		...(canReview ? [{ value: "review", label: "Review" }] : []),
 		...(canManageRequests ? [{ value: "join-requests", label: "Join requests" }] : []),
+		...(canManageInvites ? [{ value: "invite-links", label: "Invite links" }] : []),
 	];
 	const activeTab = tabs.some((entry) => entry.value === tab) ? tab! : "agents";
 	const activeType: RegistryType = type ?? "mcps";
@@ -1000,9 +1208,14 @@ export default function TeamspaceDetailPage() {
 							</div>
 						</div>
 						<div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
-							<ShareLinkButton path={`/teamspaces/${team.handle}`} />
+							{team.visibility === "public" ? (
+								<ShareLinkButton path={`/teamspaces/${team.handle}`} />
+							) : canManageInvites ? (
+								<Button variant="outline" size="sm" onClick={() => setInviteDialogOpen(true)}>
+									<Ticket /> Invite link
+								</Button>
+							) : null}
 							<VisibilityControl team={team} />
-							<TeamInviteLinkButton handle={team.handle} />
 							<JoinRequestControl team={team} />
 							{isMember && (
 								<Button
@@ -1088,6 +1301,11 @@ export default function TeamspaceDetailPage() {
 								/>
 							</TabsContent>
 						)}
+						{canManageInvites && (
+							<TabsContent value="invite-links" className="mt-5">
+								<InviteLinksTab team={team} />
+							</TabsContent>
+						)}
 					</Tabs>
 
 					<footer className="mt-6 flex flex-col gap-3 rounded-lg border border-border/80 bg-card/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1106,6 +1324,10 @@ export default function TeamspaceDetailPage() {
 					</footer>
 				</div>
 			</main>
+
+			{canManageInvites && (
+				<CreateTeamInviteDialogs team={team} open={inviteDialogOpen} onOpenChange={setInviteDialogOpen} />
+			)}
 
 			<SubmitComponentDialog
 				key={`${team.id}-${activeType}`}

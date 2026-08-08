@@ -158,6 +158,65 @@ export function useRemoveTeamMember(teamId?: string) {
 	});
 }
 
+export function useTeamInvites(teamId: string | undefined, enabled = true) {
+	return useQuery({
+		queryKey: ["teams", teamId, "invites"],
+		queryFn: () => teams.invites(teamId || ""),
+		enabled: !!teamId && enabled,
+	});
+}
+
+export function useCreateTeamInvite(teamId?: string) {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: (body: { name?: string; expires_in_days?: number; max_uses?: number | null }) =>
+			teams.createInvite(teamId || "", body),
+		onSuccess: () => qc.invalidateQueries({ queryKey: ["teams", teamId, "invites"] }),
+		onError: (err: Error) => toast.error(err.message || "Failed to create invite"),
+	});
+}
+
+export function useRevokeTeamInvite(teamId?: string) {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: (inviteId: string) => teams.revokeInvite(teamId || "", inviteId),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ["teams", teamId, "invites"] });
+			toast.success("Invite revoked");
+		},
+		onError: (err: Error) => toast.error(err.message || "Failed to revoke invite"),
+	});
+}
+
+export function useDeleteTeamInvite(teamId?: string) {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: (inviteId: string) => teams.deleteInvite(teamId || "", inviteId),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ["teams", teamId, "invites"] });
+			toast.success("Unused invite deleted");
+		},
+		onError: (err: Error) => toast.error(err.message || "Failed to delete invite"),
+	});
+}
+
+export function useTeamInviteRequests(teamId: string | undefined, inviteId: string | undefined) {
+	return useQuery({
+		queryKey: ["teams", teamId, "invites", inviteId, "requests"],
+		queryFn: () => teams.inviteRequests(teamId || "", inviteId || ""),
+		enabled: !!teamId && !!inviteId,
+	});
+}
+
+export function useTeamInvitePreview(token: string | undefined) {
+	return useQuery({
+		queryKey: ["team-invite", token],
+		queryFn: () => teams.previewInvite(token || ""),
+		enabled: !!token,
+		retry: false,
+	});
+}
+
 /** Every join request for a teamspace, including pending requests and decision history. */
 export function useJoinRequests(teamId: string | undefined, enabled = true) {
 	return useQuery({
@@ -179,7 +238,7 @@ export function useMyJoinRequests(teamId: string | undefined, enabled = true) {
 export function useRequestJoin(teamId?: string) {
 	const qc = useQueryClient();
 	return useMutation({
-		mutationFn: (body: { message?: string }) => teams.requestJoin(teamId || "", body),
+		mutationFn: (body: { message?: string; invite_token?: string }) => teams.requestJoin(teamId || "", body),
 		onSuccess: () => {
 			qc.invalidateQueries({ queryKey: JOIN_REQUESTS_KEY(teamId) });
 			toast.success("Join request sent — a team owner will review it");

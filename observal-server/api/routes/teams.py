@@ -1,20 +1,29 @@
 # SPDX-FileCopyrightText: 2026 Hari Srinivasan <harisrini21@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 
+import hashlib
+import secrets
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+import services.dynamic_settings as ds
 from api.deps import get_db, require_role
 from models.team import Team, TeamJoinRequestStatus, TeamMembership, TeamMembershipRequest, TeamRole
+from models.team_invite import TeamInvite
 from models.user import User, UserRole
 from schemas.team import (
     TeamCreateRequest,
+    TeamInviteCreatedResponse,
+    TeamInviteCreateRequest,
+    TeamInvitePreviewRequest,
+    TeamInvitePreviewResponse,
+    TeamInviteResponse,
     TeamJoinDecisionRequest,
     TeamJoinRequestCreate,
     TeamJoinRequestResponse,
@@ -26,6 +35,7 @@ from schemas.team import (
 )
 from services.inbox import sources as inbox_sources
 from services.security_events import EventType, SecurityEvent, Severity, emit_security_event
+from services.team_invites import invite_state, redeemable_team_invite
 from services.teamspace import (
     REVIEWING_TEAM_ROLES,
     count_owners,
@@ -207,6 +217,31 @@ async def team_by_handle(
         role=role,
         member_count=int(member_count or 0),
         created_at=team.created_at,
+    )
+
+
+@router.post("/invites/preview", response_model=TeamInvitePreviewResponse)
+async def preview_team_invite(
+    req: TeamInvitePreviewRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.user)),
+):
+    """Show the limited private-team summary named by an invitation token."""
+    del current_user
+    invite = await redeemable_team_invite(db, req.token)
+    if invite is None:
+        return TeamInvitePreviewResponse(valid=False)
+    team = await db.get(Team, invite.team_id)
+    if team is None or not team.is_private:
+        return TeamInvitePreviewResponse(valid=False)
+    inviter = await db.get(User, invite.invited_by) if invite.invited_by else None
+    return TeamInvitePreviewResponse(
+        valid=True,
+        team_id=team.id,
+        team_name=team.name,
+        team_handle=team.handle,
+        team_description=team.description,
+        invited_by=(inviter.name or inviter.username) if inviter else None,
     )
 
 
@@ -429,6 +464,12 @@ async def update_team_visibility(
 
     changed = team.is_private != (req.visibility == "private")
     team.is_private = req.visibility == "private"
+    if changed and not team.is_private:
+        await db.execute(
+            update(TeamInvite)
+            .where(TeamInvite.team_id == team.id, TeamInvite.revoked_at.is_(None))
+            .values(revoked_at=datetime.now(UTC))
+        )
     await db.commit()
     await db.refresh(team)
     if changed:
@@ -646,6 +687,160 @@ async def leave_team(
     await db.commit()
 
 
+# ── Private-team invitation links ────────────────────────────────────
+
+
+def _team_invite_response(invite: TeamInvite, username: str | None = None) -> TeamInviteResponse:
+    token = ds.decrypt_value(invite.token_encrypted or "")
+    frontend = str(ds.get_sync("deployment.frontend_url", "http://localhost:3000")).rstrip("/")
+    return TeamInviteResponse(
+        id=invite.id,
+        team_id=invite.team_id,
+        name=invite.name,
+        url=f"{frontend}/team-invites/{token}" if token else None,
+        invited_by_username=username,
+        max_uses=invite.max_uses,
+        use_count=invite.use_count,
+        expires_at=invite.expires_at,
+        revoked_at=invite.revoked_at,
+        created_at=invite.created_at,
+        state=invite_state(invite),
+    )
+
+
+async def _emit_team_invite_event(event_type: EventType, invite: TeamInvite, actor: User, detail: str) -> None:
+    await emit_security_event(
+        SecurityEvent(
+            event_type=event_type,
+            severity=Severity.INFO,
+            outcome="success",
+            actor_id=str(actor.id),
+            actor_email=actor.email,
+            actor_role=actor.role.value,
+            target_id=str(invite.id),
+            target_type="team_invite",
+            detail=detail,
+        )
+    )
+
+
+@router.post("/{team_id}/invites", response_model=TeamInviteCreatedResponse, status_code=201)
+async def create_team_invite(
+    team_id: uuid.UUID,
+    req: TeamInviteCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.user)),
+):
+    team = await _require_owner_or_admin(db, team_id, current_user)
+    if not team.is_private:
+        raise HTTPException(status_code=409, detail="Public teamspaces use Share links")
+
+    token = secrets.token_urlsafe(32)
+    now = datetime.now(UTC)
+    invite = TeamInvite(
+        token_hash=hashlib.sha256(token.encode()).hexdigest(),
+        token_encrypted=ds.encrypt_value(token),
+        name=(req.name or "").strip() or f"Invite {now:%Y-%m-%d %H:%M UTC}",
+        team_id=team.id,
+        invited_by=current_user.id,
+        max_uses=req.max_uses,
+        expires_at=now + timedelta(days=req.expires_in_days),
+    )
+    db.add(invite)
+    await db.commit()
+
+    base = _team_invite_response(invite, current_user.username)
+    await _emit_team_invite_event(
+        EventType.TEAM_INVITE_CREATED, invite, current_user, f"Invite created for {team.handle}"
+    )
+    return TeamInviteCreatedResponse(**base.model_dump(), token=token)
+
+
+@router.get("/{team_id}/invites", response_model=list[TeamInviteResponse])
+async def list_team_invites(
+    team_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.user)),
+):
+    team = await _require_owner_or_admin(db, team_id, current_user)
+    if not team.is_private:
+        return []
+    rows = (
+        await db.execute(
+            select(TeamInvite, User.username)
+            .outerjoin(User, User.id == TeamInvite.invited_by)
+            .where(TeamInvite.team_id == team.id)
+            .order_by(TeamInvite.created_at.desc())
+        )
+    ).all()
+    return [_team_invite_response(invite, username) for invite, username in rows]
+
+
+@router.post("/{team_id}/invites/{invite_id}/revoke", response_model=TeamInviteResponse)
+async def revoke_team_invite(
+    team_id: uuid.UUID,
+    invite_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.user)),
+):
+    await _require_owner_or_admin(db, team_id, current_user)
+    invite = await db.get(TeamInvite, invite_id)
+    if invite is None or invite.team_id != team_id:
+        raise HTTPException(status_code=404, detail="Invite not found")
+    if invite.revoked_at is None:
+        invite.revoked_at = datetime.now(UTC)
+        await db.commit()
+        await _emit_team_invite_event(EventType.TEAM_INVITE_REVOKED, invite, current_user, "Invite revoked")
+    inviter = await db.get(User, invite.invited_by) if invite.invited_by else None
+    return _team_invite_response(invite, inviter.username if inviter else None)
+
+
+@router.get("/{team_id}/invites/{invite_id}/requests", response_model=list[TeamJoinRequestResponse])
+async def team_invite_requests(
+    team_id: uuid.UUID,
+    invite_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.user)),
+):
+    await _require_owner_or_admin(db, team_id, current_user)
+    invite = await db.get(TeamInvite, invite_id)
+    if invite is None or invite.team_id != team_id:
+        raise HTTPException(status_code=404, detail="Invite not found")
+    decider = aliased(User)
+    rows = (
+        await db.execute(
+            select(TeamMembershipRequest, User, decider.username)
+            .join(User, User.id == TeamMembershipRequest.user_id)
+            .outerjoin(decider, decider.id == TeamMembershipRequest.decided_by)
+            .where(TeamMembershipRequest.invite_id == invite.id)
+            .order_by(TeamMembershipRequest.created_at.desc())
+        )
+    ).all()
+    return [_join_request_response(request, requester, decided_by) for request, requester, decided_by in rows]
+
+
+@router.delete("/{team_id}/invites/{invite_id}", status_code=204)
+async def delete_unused_team_invite(
+    team_id: uuid.UUID,
+    invite_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.user)),
+):
+    await _require_owner_or_admin(db, team_id, current_user)
+    invite = (
+        await db.execute(
+            select(TeamInvite).where(TeamInvite.id == invite_id, TeamInvite.team_id == team_id).with_for_update()
+        )
+    ).scalar_one_or_none()
+    if invite is None:
+        raise HTTPException(status_code=404, detail="Invite not found")
+    if invite.use_count:
+        raise HTTPException(status_code=409, detail="Used invites are retained for audit")
+    await db.delete(invite)
+    await db.commit()
+    await _emit_team_invite_event(EventType.TEAM_INVITE_DELETED, invite, current_user, "Unused invite deleted")
+
+
 # ── Membership join requests ─────────────────────────────────────────
 #
 # A shared /teamspaces/{handle} link never grants access. It leads here: the
@@ -664,6 +859,7 @@ def _join_request_response(
         id=row.id,
         team_id=row.team_id,
         user_id=row.user_id,
+        invite_id=row.invite_id,
         email=requester.email if requester else None,
         username=requester.username if requester else None,
         name=requester.name if requester else None,
@@ -721,14 +917,29 @@ async def create_join_request(
     current_user: User = Depends(require_role(UserRole.user)),
 ):
     """Ask for member access to a teamspace. Owners decide; the link never does."""
-    # A private teamspace cannot be requested by someone who cannot see it.
-    team = await _load_visible_team(db, team_id, current_user)
+    team = await _load_team(db, team_id)
     membership = await team_membership(db, team.id, current_user.id)
     if membership:
         raise HTTPException(status_code=409, detail="You are already a member of this teamspace")
 
+    invite = None
+    if not team_visible_to(team, membership, current_user):
+        invite = await redeemable_team_invite(
+            db,
+            req.invite_token or "",
+            team_id=team.id,
+            for_update=True,
+        )
+        if invite is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+
     message = (req.message or "").strip() or None
-    row = TeamMembershipRequest(team_id=team.id, user_id=current_user.id, message=message)
+    row = TeamMembershipRequest(
+        team_id=team.id,
+        user_id=current_user.id,
+        invite_id=invite.id if invite else None,
+        message=message,
+    )
     try:
         # SAVEPOINT so the partial-unique collision (one pending request per
         # user per team) can be answered without poisoning the transaction the
@@ -739,9 +950,15 @@ async def create_join_request(
     except IntegrityError:
         raise HTTPException(status_code=409, detail="You already have a pending request for this teamspace") from None
 
+    if invite is not None:
+        invite.use_count += 1
     await inbox_sources.on_team_join_requested(db, team, requester_id=current_user.id, message=message)
     await db.commit()
     await _emit_join_event(EventType.TEAM_JOIN_REQUESTED, team, current_user, f"Requested to join '{team.handle}'")
+    if invite is not None:
+        await _emit_team_invite_event(
+            EventType.TEAM_INVITE_REDEEMED, invite, current_user, "Invite used to request access"
+        )
     return _join_request_response(row, current_user)
 
 

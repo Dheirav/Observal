@@ -57,9 +57,10 @@ class EventType(str, Enum):
     PENALTY_WEIGHTS_MODIFIED = "admin.penalty_weights.modified"
     CANARY_CREATED = "admin.canary.created"
     CANARY_DELETED = "admin.canary.deleted"
-    INVITE_CREATED = "admin.invite.created"
-    INVITE_REDEEMED = "admin.invite.redeemed"
-    INVITE_REVOKED = "admin.invite.revoked"
+    TEAM_INVITE_CREATED = "team.invite.created"
+    TEAM_INVITE_DELETED = "team.invite.deleted"
+    TEAM_INVITE_REDEEMED = "team.invite.redeemed"
+    TEAM_INVITE_REVOKED = "team.invite.revoked"
     ALERT_RULE_CHANGED = "admin.alert_rule.changed"
     ADMIN_PASSWORD_RESET = "admin.password_reset"
 

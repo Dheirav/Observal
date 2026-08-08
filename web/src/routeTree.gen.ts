@@ -22,6 +22,7 @@ import { Route as AuthedWikiIndexRouteImport } from './routes/_authed/wiki/index
 import { Route as AuthedComponentsIndexRouteImport } from './routes/_authed/components/index'
 import { Route as AuthedAgentsIndexRouteImport } from './routes/_authed/agents/index'
 import { Route as AuthedTeamspacesHandleRouteImport } from './routes/_authed/teamspaces.$handle'
+import { Route as AuthedTeamInvitesTokenRouteImport } from './routes/_authed/team-invites.$token'
 import { Route as AuthedInsightsReportIdRouteImport } from './routes/_authed/insights/$reportId'
 import { Route as AuthedComponentsComponentIdRouteImport } from './routes/_authed/components/$componentId'
 import { Route as AuthedAgentsBuilderRouteImport } from './routes/_authed/agents/builder'
@@ -103,6 +104,11 @@ const AuthedTeamspacesHandleRoute = AuthedTeamspacesHandleRouteImport.update({
   id: '/$handle',
   path: '/$handle',
   getParentRoute: () => AuthedTeamspacesRoute,
+} as any)
+const AuthedTeamInvitesTokenRoute = AuthedTeamInvitesTokenRouteImport.update({
+  id: '/team-invites/$token',
+  path: '/team-invites/$token',
+  getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedInsightsReportIdRoute = AuthedInsightsReportIdRouteImport.update({
   id: '/insights/$reportId',
@@ -226,6 +232,7 @@ export interface FileRoutesByFullPath {
   '/agents/builder': typeof AuthedAgentsBuilderRoute
   '/components/$componentId': typeof AuthedComponentsComponentIdRoute
   '/insights/$reportId': typeof AuthedInsightsReportIdRoute
+  '/team-invites/$token': typeof AuthedTeamInvitesTokenRoute
   '/teamspaces/$handle': typeof AuthedTeamspacesHandleRoute
   '/agents/': typeof AuthedAgentsIndexRoute
   '/components/': typeof AuthedComponentsIndexRoute
@@ -257,6 +264,7 @@ export interface FileRoutesByTo {
   '/agents/builder': typeof AuthedAgentsBuilderRoute
   '/components/$componentId': typeof AuthedComponentsComponentIdRoute
   '/insights/$reportId': typeof AuthedInsightsReportIdRoute
+  '/team-invites/$token': typeof AuthedTeamInvitesTokenRoute
   '/teamspaces/$handle': typeof AuthedTeamspacesHandleRoute
   '/agents': typeof AuthedAgentsIndexRoute
   '/components': typeof AuthedComponentsIndexRoute
@@ -292,6 +300,7 @@ export interface FileRoutesById {
   '/_authed/agents/builder': typeof AuthedAgentsBuilderRoute
   '/_authed/components/$componentId': typeof AuthedComponentsComponentIdRoute
   '/_authed/insights/$reportId': typeof AuthedInsightsReportIdRoute
+  '/_authed/team-invites/$token': typeof AuthedTeamInvitesTokenRoute
   '/_authed/teamspaces/$handle': typeof AuthedTeamspacesHandleRoute
   '/_authed/agents/': typeof AuthedAgentsIndexRoute
   '/_authed/components/': typeof AuthedComponentsIndexRoute
@@ -325,6 +334,7 @@ export interface FileRouteTypes {
     | '/agents/builder'
     | '/components/$componentId'
     | '/insights/$reportId'
+    | '/team-invites/$token'
     | '/teamspaces/$handle'
     | '/agents/'
     | '/components/'
@@ -356,6 +366,7 @@ export interface FileRouteTypes {
     | '/agents/builder'
     | '/components/$componentId'
     | '/insights/$reportId'
+    | '/team-invites/$token'
     | '/teamspaces/$handle'
     | '/agents'
     | '/components'
@@ -390,6 +401,7 @@ export interface FileRouteTypes {
     | '/_authed/agents/builder'
     | '/_authed/components/$componentId'
     | '/_authed/insights/$reportId'
+    | '/_authed/team-invites/$token'
     | '/_authed/teamspaces/$handle'
     | '/_authed/agents/'
     | '/_authed/components/'
@@ -500,6 +512,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/teamspaces/$handle'
       preLoaderRoute: typeof AuthedTeamspacesHandleRouteImport
       parentRoute: typeof AuthedTeamspacesRoute
+    }
+    '/_authed/team-invites/$token': {
+      id: '/_authed/team-invites/$token'
+      path: '/team-invites/$token'
+      fullPath: '/team-invites/$token'
+      preLoaderRoute: typeof AuthedTeamInvitesTokenRouteImport
+      parentRoute: typeof AuthedRoute
     }
     '/_authed/insights/$reportId': {
       id: '/_authed/insights/$reportId'
@@ -714,6 +733,7 @@ interface AuthedRouteChildren {
   AuthedAgentsBuilderRoute: typeof AuthedAgentsBuilderRoute
   AuthedComponentsComponentIdRoute: typeof AuthedComponentsComponentIdRoute
   AuthedInsightsReportIdRoute: typeof AuthedInsightsReportIdRoute
+  AuthedTeamInvitesTokenRoute: typeof AuthedTeamInvitesTokenRoute
   AuthedAgentsIndexRoute: typeof AuthedAgentsIndexRoute
   AuthedComponentsIndexRoute: typeof AuthedComponentsIndexRoute
   AuthedWikiIndexRoute: typeof AuthedWikiIndexRoute
@@ -731,6 +751,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedAgentsBuilderRoute: AuthedAgentsBuilderRoute,
   AuthedComponentsComponentIdRoute: AuthedComponentsComponentIdRoute,
   AuthedInsightsReportIdRoute: AuthedInsightsReportIdRoute,
+  AuthedTeamInvitesTokenRoute: AuthedTeamInvitesTokenRoute,
   AuthedAgentsIndexRoute: AuthedAgentsIndexRoute,
   AuthedComponentsIndexRoute: AuthedComponentsIndexRoute,
   AuthedWikiIndexRoute: AuthedWikiIndexRoute,

@@ -1,20 +1,14 @@
 # SPDX-FileCopyrightText: 2026 Lokesh Selvam <lokeshselvam7025@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Invite links: minting, preview, redemption, and every way a token dies.
-
-An invite authorizes account creation only, while self-registration stays off.
-These tests pin the boundaries: admin-only minting, hashed-at-rest tokens,
-expiry, revocation, max-uses exhaustion, an oracle-free preview, and
-redemption that is atomic with the created account.
-"""
+"""Private-team invitation links never create accounts or memberships directly."""
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
@@ -24,54 +18,36 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from api.deps import get_current_user, get_db
-from api.ratelimit import limiter
-from api.routes.admin import router as admin_router
-from api.routes.auth import router as auth_router
+from api.routes.teams import router as teams_router
 from models.base import Base
-from models.invite import Invite, InviteRedemption
-from models.team import Team
+from models.inbox import InboxItem, InboxItemEvent
+from models.team import Team, TeamMembership, TeamMembershipRequest, TeamRole
+from models.team_invite import TeamInvite
 from models.user import User, UserRole
 
 _TABLES = [
     User.__table__,
     Team.__table__,
-    Invite.__table__,
-    InviteRedemption.__table__,
+    TeamMembership.__table__,
+    TeamMembershipRequest.__table__,
+    TeamInvite.__table__,
+    InboxItem.__table__,
+    InboxItemEvent.__table__,
 ]
-
-_STRONG_PASSWORD = "Str0ng!Passw0rd"
-
-# Self-registration off, password auth allowed — the exact deployment shape
-# invites exist for. Individual tests override keys.
-_DEFAULT_SETTINGS = {
-    "auth.self_registration_enabled": False,
-    "deployment.sso_only": False,
-}
-
-
-def _settings(overrides: dict | None = None):
-    values = {**_DEFAULT_SETTINGS, **(overrides or {})}
-
-    async def get_bool(key: str, default: bool | None = None) -> bool:
-        return values.get(key, bool(default))
-
-    return get_bool
 
 
 @pytest_asyncio.fixture()
 async def sessions():
-    limiter.enabled = False
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all, tables=_TABLES)
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all, tables=_TABLES)
         yield async_sessionmaker(engine, expire_on_commit=False)
     finally:
         await engine.dispose()
-        limiter.enabled = True
 
 
-async def _user(db, role=UserRole.user) -> User:
+async def _user(db, role=UserRole.user):
     user = User(
         id=uuid.uuid4(),
         email=f"{uuid.uuid4().hex[:8]}@example.test",
@@ -85,198 +61,222 @@ async def _user(db, role=UserRole.user) -> User:
     return user
 
 
+async def _seed(sessions, *, private=True):
+    async with sessions() as db:
+        owner = await _user(db)
+        outsider = await _user(db)
+        admin = await _user(db, UserRole.admin)
+        team = Team(
+            id=uuid.uuid4(),
+            name="Secret Team",
+            handle=f"secret-{uuid.uuid4().hex[:8]}",
+            description="Private tools",
+            is_private=private,
+            created_by=owner.id,
+        )
+        db.add(team)
+        await db.flush()
+        db.add(TeamMembership(team_id=team.id, user_id=owner.id, role=TeamRole.owner))
+        await db.commit()
+        return owner, outsider, admin, team
+
+
 @asynccontextmanager
-async def _client(sessions, actor: User | None = None, settings: dict | None = None):
+async def _client(sessions, actor):
     async with sessions() as session:
         app = FastAPI()
-        app.include_router(auth_router)
-        app.include_router(admin_router)
+        app.include_router(teams_router)
         app.dependency_overrides[get_db] = lambda: session
-        if actor is not None:
-            app.dependency_overrides[get_current_user] = lambda: actor
-        with (
-            patch("services.dynamic_settings.get_bool", new=_settings(settings)),
-            patch("api.routes.auth._issue_tokens", new=AsyncMock(return_value=("tok", "ref", 3600))),
-        ):
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                yield client, session
+        app.dependency_overrides[get_current_user] = lambda: actor
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            yield client
 
 
-async def _admin_and_invite(sessions, *, invite_kwargs: dict | None = None) -> tuple[User, str]:
-    """Mint an invite through the API and return (admin, plaintext token)."""
+async def _create(client, team_id, **body):
+    return await client.post(f"/api/v1/teams/{team_id}/invites", json=body)
+
+
+@pytest.mark.asyncio
+async def test_invite_preview_requires_authentication(sessions):
+    async with sessions() as session:
+        app = FastAPI()
+        app.include_router(teams_router)
+        app.dependency_overrides[get_db] = lambda: session
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/api/v1/teams/invites/preview", json={"token": "secret"})
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_owner_creates_lists_and_revokes_team_invite(sessions):
+    owner, _outsider, _admin, team = await _seed(sessions)
+    async with _client(sessions, owner) as client:
+        created = await _create(client, team.id, name="Hiring email", expires_in_days=7, max_uses=2)
+        listed = await client.get(f"/api/v1/teams/{team.id}/invites")
+        revoked = await client.post(f"/api/v1/teams/{team.id}/invites/{created.json()['id']}/revoke")
+
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["name"] == "Hiring email"
+    assert body["url"].endswith(f"/team-invites/{body['token']}")
+    assert listed.json()[0]["id"] == body["id"]
+    assert listed.json()[0]["url"] == body["url"]
+    assert revoked.json()["state"] == "revoked"
+
     async with sessions() as db:
-        admin = await _user(db, role=UserRole.admin)
+        invite = await db.get(TeamInvite, uuid.UUID(body["id"]))
+        assert invite.token_hash == hashlib.sha256(body["token"].encode()).hexdigest()
+        assert body["token"] not in invite.token_hash
+        assert invite.token_encrypted.startswith("enc:")
+        assert body["token"] not in invite.token_encrypted
+
+
+@pytest.mark.asyncio
+async def test_global_admin_can_manage_private_team_invites(sessions):
+    _owner, _outsider, admin, team = await _seed(sessions)
+    async with _client(sessions, admin) as client:
+        response = await _create(client, team.id)
+    assert response.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_team_reviewer_cannot_manage_invites(sessions):
+    _owner, reviewer, _admin, team = await _seed(sessions)
+    async with sessions() as db:
+        db.add(TeamMembership(team_id=team.id, user_id=reviewer.id, role=TeamRole.reviewer))
         await db.commit()
-    async with _client(sessions, actor=admin) as (client, _):
-        response = await client.post("/api/v1/admin/invites", json=invite_kwargs or {})
-    assert response.status_code == 201, response.text
-    return admin, response.json()["token"]
-
-
-def _register_body(token: str | None = None) -> dict:
-    body = {
-        # EmailStr refuses reserved TLDs like .test, so registration bodies use
-        # example.com while fixture users (never validated) keep .test.
-        "email": f"{uuid.uuid4().hex[:8]}@example.com",
-        "name": "New Person",
-        "password": _STRONG_PASSWORD,
-    }
-    if token:
-        body["invite_token"] = token
-    return body
-
-
-# ── Minting ──────────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_minting_requires_admin(sessions):
-    async with sessions() as db:
-        admin = await _user(db, role=UserRole.admin)
-        plain = await _user(db, role=UserRole.user)
-        await db.commit()
-
-    async with _client(sessions, actor=plain) as (client, _):
-        forbidden = await client.post("/api/v1/admin/invites", json={})
-    assert forbidden.status_code == 403
-
-    async with _client(sessions, actor=admin) as (client, _):
-        minted = await client.post("/api/v1/admin/invites", json={"max_uses": 5, "next_path": "/teamspaces/acme"})
-    assert minted.status_code == 201
-    body = minted.json()
-    assert body["state"] == "active"
-    assert "/register?invite=" in body["url"]
-    assert "next=/teamspaces/acme" in body["url"]
-
-    # Only the hash is stored, and it is not the plaintext.
-    async with sessions() as db:
-        invite = (await db.execute(select(Invite))).scalar_one()
-        assert invite.token_hash != body["token"]
-        assert len(invite.token_hash) == 64
-
-
-@pytest.mark.asyncio
-async def test_minting_rejects_unsafe_next_path(sessions):
-    async with sessions() as db:
-        admin = await _user(db, role=UserRole.admin)
-        await db.commit()
-    async with _client(sessions, actor=admin) as (client, _):
-        response = await client.post("/api/v1/admin/invites", json={"next_path": "//evil.example"})
-    assert response.status_code == 422
-
-
-# ── Preview ──────────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_preview_is_oracle_free(sessions):
-    admin, token = await _admin_and_invite(sessions)
-
-    async with _client(sessions) as (client, _):
-        valid = await client.post("/api/v1/auth/invite/preview", json={"token": token})
-        unknown = await client.post("/api/v1/auth/invite/preview", json={"token": "nope"})
-    assert valid.status_code == 200
-    assert valid.json()["valid"] is True
-    assert valid.json()["invited_by"] == admin.name
-
-    # Unknown and revoked answer the identical shape.
-    assert unknown.json() == {"valid": False, "invited_by": None, "next_path": None}
-
-
-# ── Redemption ───────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_valid_token_bypasses_closed_registration(sessions):
-    _admin, token = await _admin_and_invite(sessions)
-
-    async with _client(sessions) as (client, _):
-        closed = await client.post("/api/v1/auth/register", json=_register_body())
-        invited = await client.post("/api/v1/auth/register", json=_register_body(token))
-    assert closed.status_code == 403
-    assert closed.json()["detail"] == "Registration is disabled"
-    assert invited.status_code == 200, invited.text
-    assert invited.json()["user"]["role"] == "user"
-
-    async with sessions() as db:
-        invite = (await db.execute(select(Invite))).scalar_one()
-        assert invite.use_count == 1
-        redemption = (await db.execute(select(InviteRedemption))).scalar_one()
-        assert redemption.invite_id == invite.id
-        assert str(redemption.user_id) == invited.json()["user"]["id"]
-
-
-@pytest.mark.asyncio
-async def test_dead_tokens_are_403_with_a_neutral_message(sessions):
-    admin, token = await _admin_and_invite(sessions)
-    async with _client(sessions, actor=admin) as (client, session):
-        invite_id = (await client.get("/api/v1/admin/invites")).json()[0]["id"]
-        revoked = await client.post(f"/api/v1/admin/invites/{invite_id}/revoke")
-        assert revoked.status_code == 200
-        assert revoked.json()["state"] == "revoked"
-
-    async with _client(sessions) as (client, _):
-        response = await client.post("/api/v1/auth/register", json=_register_body(token))
+    async with _client(sessions, reviewer) as client:
+        response = await _create(client, team.id)
     assert response.status_code == 403
-    assert response.json()["detail"] == "This invite link is no longer valid"
 
 
 @pytest.mark.asyncio
-async def test_expired_token_is_invalid(sessions):
-    _admin, token = await _admin_and_invite(sessions, invite_kwargs={"expires_in_days": 1})
+async def test_owner_can_delete_only_unused_invite(sessions):
+    owner, _outsider, _admin, team = await _seed(sessions)
+    async with _client(sessions, owner) as client:
+        created = await _create(client, team.id)
+        deleted = await client.delete(f"/api/v1/teams/{team.id}/invites/{created.json()['id']}")
+        listed = await client.get(f"/api/v1/teams/{team.id}/invites")
+    assert deleted.status_code == 204
+    assert listed.json() == []
+
+
+@pytest.mark.asyncio
+async def test_public_team_uses_share_instead_of_invites(sessions):
+    owner, _outsider, _admin, team = await _seed(sessions, private=False)
+    async with _client(sessions, owner) as client:
+        response = await _create(client, team.id)
+    assert response.status_code == 409
+    assert "Share" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_authenticated_recipient_previews_and_requests_access(sessions):
+    owner, outsider, _admin, team = await _seed(sessions)
+    async with _client(sessions, owner) as client:
+        created = await _create(client, team.id, max_uses=1)
+    token = created.json()["token"]
+
+    async with _client(sessions, outsider) as client:
+        hidden = await client.get(f"/api/v1/teams/by-handle/{team.handle}")
+        preview = await client.post("/api/v1/teams/invites/preview", json={"token": token})
+        requested = await client.post(
+            f"/api/v1/teams/{team.id}/join-requests",
+            json={"invite_token": token},
+        )
+    assert hidden.status_code == 404
+    assert preview.json()["team_handle"] == team.handle
+    assert requested.status_code == 201
+
+    async with _client(sessions, owner) as client:
+        audit = await client.get(f"/api/v1/teams/{team.id}/invites/{created.json()['id']}/requests")
+        delete_used = await client.delete(f"/api/v1/teams/{team.id}/invites/{created.json()['id']}")
+    assert audit.status_code == 200
+    assert audit.json()[0]["user_id"] == str(outsider.id)
+    assert audit.json()[0]["status"] == "pending"
+    assert delete_used.status_code == 409
+
     async with sessions() as db:
-        invite = (await db.execute(select(Invite))).scalar_one()
-        invite.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+        membership = (
+            await db.execute(
+                select(TeamMembership).where(
+                    TeamMembership.team_id == team.id,
+                    TeamMembership.user_id == outsider.id,
+                )
+            )
+        ).scalar_one_or_none()
+        request = (await db.execute(select(TeamMembershipRequest))).scalar_one()
+        invite = (await db.execute(select(TeamInvite))).scalar_one()
+        assert membership is None
+        assert request.user_id == outsider.id
+        assert invite.use_count == 1
+        second_outsider = await _user(db)
         await db.commit()
 
-    async with _client(sessions) as (client, _):
-        preview = await client.post("/api/v1/auth/invite/preview", json={"token": token})
-        response = await client.post("/api/v1/auth/register", json=_register_body(token))
+    async with _client(sessions, second_outsider) as client:
+        exhausted_preview = await client.post("/api/v1/teams/invites/preview", json={"token": token})
+        exhausted_request = await client.post(
+            f"/api/v1/teams/{team.id}/join-requests",
+            json={"invite_token": token},
+        )
+    assert exhausted_preview.json()["valid"] is False
+    assert exhausted_request.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_making_team_public_revokes_existing_invites(sessions):
+    owner, outsider, _admin, team = await _seed(sessions)
+    async with _client(sessions, owner) as client:
+        created = await _create(client, team.id)
+        public = await client.patch(f"/api/v1/teams/{team.id}/visibility", json={"visibility": "public"})
+    assert public.status_code == 200
+
+    async with sessions() as db:
+        invite = await db.get(TeamInvite, uuid.UUID(created.json()["id"]))
+        assert invite.revoked_at is not None
+        stored_team = await db.get(Team, team.id)
+        stored_team.is_private = True
+        await db.commit()
+
+    async with _client(sessions, outsider) as client:
+        preview = await client.post("/api/v1/teams/invites/preview", json={"token": created.json()["token"]})
     assert preview.json()["valid"] is False
-    assert response.status_code == 403
 
 
 @pytest.mark.asyncio
-async def test_max_uses_is_exhausted_after_the_last_redemption(sessions):
-    _admin, token = await _admin_and_invite(sessions, invite_kwargs={"max_uses": 1})
-
-    async with _client(sessions) as (client, _):
-        first = await client.post("/api/v1/auth/register", json=_register_body(token))
-        second = await client.post("/api/v1/auth/register", json=_register_body(token))
-    assert first.status_code == 200
-    assert second.status_code == 403
-    assert second.json()["detail"] == "This invite link is no longer valid"
-
+async def test_invalid_exhausted_or_revoked_invite_cannot_reveal_private_team(sessions):
+    owner, outsider, _admin, team = await _seed(sessions)
     async with sessions() as db:
-        invite = (await db.execute(select(Invite))).scalar_one()
-        assert invite.use_count == 1
-
-
-@pytest.mark.asyncio
-async def test_sso_only_blocks_register_even_with_a_token(sessions):
-    _admin, token = await _admin_and_invite(sessions)
-    async with _client(sessions, settings={"deployment.sso_only": True}) as (client, _):
-        response = await client.post("/api/v1/auth/register", json=_register_body(token))
-    assert response.status_code == 403
-    assert "SSO-only" in response.json()["detail"]
-
-
-@pytest.mark.asyncio
-async def test_sso_only_refuses_to_mint_dead_links(sessions):
-    """An invite could never be redeemed on an SSO-only deployment, so minting
-    one is refused with an explanation instead of handing out a dead URL."""
-    async with sessions() as db:
-        admin = await _user(db, role=UserRole.admin)
+        invites = [
+            TeamInvite(
+                token_hash=hashlib.sha256(token.encode()).hexdigest(),
+                team_id=team.id,
+                invited_by=owner.id,
+                max_uses=1 if token == "exhausted" else None,
+                use_count=1 if token == "exhausted" else 0,
+                expires_at=datetime.now(UTC) - timedelta(days=1)
+                if token == "expired"
+                else datetime.now(UTC) + timedelta(days=1),
+                revoked_at=datetime.now(UTC) if token == "revoked" else None,
+            )
+            for token in ("exhausted", "expired", "revoked")
+        ]
+        db.add_all(invites)
         await db.commit()
-    async with _client(sessions, actor=admin, settings={"deployment.sso_only": True}) as (client, _):
-        response = await client.post("/api/v1/admin/invites", json={})
-    assert response.status_code == 400
-    assert "SSO-only" in response.json()["detail"]
 
-
-@pytest.mark.asyncio
-async def test_open_registration_ignores_a_dead_token(sessions):
-    """When self-registration is open, a stale token must not block sign-up."""
-    async with _client(sessions, settings={"auth.self_registration_enabled": True}) as (client, _):
-        response = await client.post("/api/v1/auth/register", json=_register_body("stale-token"))
-    assert response.status_code == 200
+    async with _client(sessions, outsider) as client:
+        for token in ("missing", "exhausted", "expired", "revoked"):
+            preview = await client.post("/api/v1/teams/invites/preview", json={"token": token})
+            request = await client.post(
+                f"/api/v1/teams/{team.id}/join-requests",
+                json={"invite_token": token},
+            )
+            assert preview.json() == {
+                "valid": False,
+                "team_id": None,
+                "team_name": None,
+                "team_handle": None,
+                "team_description": None,
+                "invited_by": None,
+            }
+            assert request.status_code == 404

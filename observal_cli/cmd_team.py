@@ -14,7 +14,9 @@ from observal_cli.render import output_json
 
 team_app = typer.Typer(name="team", help="Manage teamspaces: creation, membership, and listing.", no_args_is_help=True)
 members_app = typer.Typer(name="members", help="Manage team membership.", no_args_is_help=True)
+invite_app = typer.Typer(name="invite", help="Manage private-team invitation links.", no_args_is_help=True)
 team_app.add_typer(members_app, name="members")
+team_app.add_typer(invite_app, name="invite")
 
 
 def _resolve_team_id(team: str) -> str:
@@ -212,6 +214,71 @@ def list_members(
     for m in rows:
         table.add_row((m.get("username") and f"@{m['username']}") or "-", m.get("email", ""), m.get("role", ""))
     rprint(table)
+
+
+@invite_app.command("create")
+def create_invite(
+    team: str = typer.Argument(help="Private team UUID or handle."),
+    name: str | None = typer.Option(None, help="Readable invite name."),
+    expires_days: int = typer.Option(7, min=1, max=365, help="Days until the link expires."),
+    max_uses: int | None = typer.Option(None, min=1, help="Maximum access requests; unlimited when omitted."),
+):
+    """Create a private-team invitation link. Owner or global admin only."""
+    team_id = _resolve_team_id(team)
+    body: dict = {"expires_in_days": expires_days}
+    if name:
+        body["name"] = name
+    if max_uses is not None:
+        body["max_uses"] = max_uses
+    response = client.post(f"/api/v1/teams/{team_id}/invites", json_data=body)
+    rprint(response["url"])
+
+
+@invite_app.command("list")
+def list_invites(
+    team: str = typer.Argument(help="Private team UUID or handle."),
+    output: str = typer.Option("table", help="Output format: table | json"),
+):
+    """List invitation links for a private teamspace."""
+    team_id = _resolve_team_id(team)
+    rows = client.get(f"/api/v1/teams/{team_id}/invites")
+    if output == "json":
+        output_json(rows)
+        return
+    if not rows:
+        rprint("[dim]No invite links.[/dim]")
+        return
+    table = Table(title="Private-team invite links")
+    table.add_column("id", style="dim")
+    table.add_column("name")
+    table.add_column("state", style="green")
+    table.add_column("uses")
+    table.add_column("expires")
+    table.add_column("created by")
+    for row in rows:
+        uses = str(row.get("use_count", 0))
+        if row.get("max_uses") is not None:
+            uses += f" / {row['max_uses']}"
+        table.add_row(
+            str(row.get("id", "")),
+            row.get("name", ""),
+            row.get("state", ""),
+            uses,
+            str(row.get("expires_at", "")),
+            row.get("invited_by_username") or "-",
+        )
+    rprint(table)
+
+
+@invite_app.command("revoke")
+def revoke_invite(
+    team: str = typer.Argument(help="Private team UUID or handle."),
+    invite_id: str = typer.Argument(help="Invitation UUID."),
+):
+    """Revoke a private-team invitation link. Owner or global admin only."""
+    team_id = _resolve_team_id(team)
+    response = client.post(f"/api/v1/teams/{team_id}/invites/{invite_id}/revoke")
+    rprint(f"[green]Invite {response.get('state')}.[/green]")
 
 
 @team_app.command("request-join")

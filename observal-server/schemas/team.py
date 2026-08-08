@@ -63,16 +63,57 @@ class TeamMemberUpsertRequest(BaseModel):
 
 class TeamJoinRequestCreate(BaseModel):
     message: str | None = Field(default=None, max_length=500)
+    invite_token: str | None = Field(default=None, max_length=128)
 
 
 class TeamJoinDecisionRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
 
 
+class TeamInviteCreateRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=100)
+    expires_in_days: int = Field(default=7, ge=1, le=365)
+    max_uses: int | None = Field(default=None, ge=1, le=10000)
+
+
+class TeamInvitePreviewRequest(BaseModel):
+    token: str = Field(max_length=128)
+
+
+class TeamInviteResponse(BaseModel):
+    id: uuid.UUID
+    team_id: uuid.UUID
+    name: str
+    url: str | None = None
+    invited_by_username: str | None = None
+    max_uses: int | None = None
+    use_count: int
+    expires_at: datetime
+    revoked_at: datetime | None = None
+    created_at: datetime | None = None
+    state: str
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TeamInviteCreatedResponse(TeamInviteResponse):
+    token: str
+    url: str
+
+
+class TeamInvitePreviewResponse(BaseModel):
+    valid: bool
+    team_id: uuid.UUID | None = None
+    team_name: str | None = None
+    team_handle: str | None = None
+    team_description: str | None = None
+    invited_by: str | None = None
+
+
 class TeamJoinRequestResponse(BaseModel):
     id: uuid.UUID
     team_id: uuid.UUID
     user_id: uuid.UUID
+    invite_id: uuid.UUID | None = None
     email: str | None = None
     username: str | None = None
     name: str | None = None
