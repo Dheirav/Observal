@@ -62,11 +62,19 @@ export interface TeamInviteCreated extends TeamInvite {
 
 export interface TeamInvitePreview {
 	valid: boolean;
+	invite_state?: TeamInviteState | null;
 	team_id?: string | null;
 	team_name?: string | null;
 	team_handle?: string | null;
 	team_description?: string | null;
 	invited_by?: string | null;
+	request?: {
+		id: string;
+		status: TeamJoinRequestStatus;
+		decision_reason?: string | null;
+		created_at?: string | null;
+		decided_at?: string | null;
+	} | null;
 }
 
 export type TeamJoinRequestStatus = "pending" | "approved" | "rejected" | "cancelled";

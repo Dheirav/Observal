@@ -141,14 +141,14 @@ def team_visible_to(team: Team, membership: TeamMembership | None, user: User) -
     """Whether this caller may see this teamspace at all.
 
     Public teamspaces are visible to every signed-in user. A private one is
-    visible only to its members and to global reviewers, admins, and
-    super_admins — hidden precisely from other plain users, like a private
-    GitHub org. Callers that fail this get 404, never 403, so a private
-    handle's existence is not confirmed.
+    visible only to its members and deployment admins. Global reviewers keep
+    their public review scope but receive no private-team metadata. Callers
+    that fail this get 404, never 403, so a private handle's existence is not
+    confirmed.
     """
     if not team.is_private:
         return True
-    return membership is not None or is_global_reviewer(user)
+    return membership is not None or is_admin(user)
 
 
 @dataclass(frozen=True)
@@ -192,6 +192,10 @@ async def resolve_publish_target(
     if team.is_private and target_visibility == "public":
         raise HTTPException(status_code=409, detail="Private teamspaces can only publish team-private items")
     membership = await team_membership(db, team.id, user.id)
+    if getattr(team, "is_personal", False) and (
+        team.created_by != user.id or membership is None or membership.role != TeamRole.owner or not team.is_private
+    ):
+        raise HTTPException(status_code=403, detail="Personal publishing requires its active creator-owner")
     # Publishing into a teamspace you do not belong to is an admin capability, not a
     # reviewer one. A global reviewer cannot read another team's private listings, so
     # letting one publish a team-private item here would create a listing its author

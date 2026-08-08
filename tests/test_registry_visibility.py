@@ -469,6 +469,41 @@ async def test_personal_component_moves_to_claimed_private_teamspace():
 
 
 @pytest.mark.asyncio
+async def test_personal_component_requires_active_creator_owner_membership():
+    owner_id = uuid.uuid4()
+    team = Team(
+        id=uuid.uuid4(),
+        name="Personal",
+        handle="alice-private",
+        created_by=owner_id,
+        is_private=True,
+        is_personal=True,
+    )
+    listing = McpListing(
+        id=uuid.uuid4(),
+        name="Search",
+        namespace="alice",
+        slug="search",
+        category="general",
+        owner="alice",
+        submitted_by=owner_id,
+        is_private=False,
+        co_authors=[],
+    )
+    async with _sessions() as sessions:
+        async with sessions() as session:
+            session.add_all([team, listing])
+            await session.commit()
+
+        user = SimpleNamespace(id=owner_id, role=UserRole.user)
+        async with sessions() as session:
+            with pytest.raises(HTTPException) as exc:
+                await _patch_visibility(session, listing.id, user)
+        assert exc.value.status_code == 409
+        assert "Claim a private personal teamspace" in exc.value.detail
+
+
+@pytest.mark.asyncio
 async def test_personal_agent_moves_to_claimed_private_teamspace():
     owner_id = uuid.uuid4()
     team = Team(

@@ -1,4 +1,5 @@
 # SPDX-FileCopyrightText: 2026 Lokesh Selvam <lokeshselvam7025@gmail.com>
+# SPDX-FileCopyrightText: 2026 Hari Srinivasan <harisrini21@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 
 """Validation for private-team invitation tokens."""
@@ -26,7 +27,7 @@ def invite_state(invite: TeamInvite, now: datetime | None = None) -> str:
     return "active"
 
 
-async def redeemable_team_invite(
+async def team_invite_by_token(
     db: AsyncSession,
     token: str,
     *,
@@ -38,5 +39,15 @@ async def redeemable_team_invite(
         stmt = stmt.where(TeamInvite.team_id == team_id)
     if for_update:
         stmt = stmt.with_for_update()
-    invite = (await db.execute(stmt)).scalar_one_or_none()
+    return (await db.execute(stmt)).scalar_one_or_none()
+
+
+async def redeemable_team_invite(
+    db: AsyncSession,
+    token: str,
+    *,
+    team_id=None,
+    for_update: bool = False,
+) -> TeamInvite | None:
+    invite = await team_invite_by_token(db, token, team_id=team_id, for_update=for_update)
     return invite if invite is not None and invite_state(invite) == "active" else None

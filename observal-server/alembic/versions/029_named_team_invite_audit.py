@@ -1,10 +1,11 @@
 # SPDX-FileCopyrightText: 2026 Lokesh Selvam <lokeshselvam7025@gmail.com>
+# SPDX-FileCopyrightText: 2026 Hari Srinivasan <harisrini21@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 
 """Add named, recoverable team invites and request audit links.
 
 Revision ID: 029_named_team_invite_audit
-Revises: 028_team_invites
+Revises: 027_personal_teamspace
 """
 
 import sqlalchemy as sa
@@ -13,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision = "029_named_team_invite_audit"
-down_revision = "028_team_invites"
+down_revision = "027_personal_teamspace"
 branch_labels = None
 depends_on = None
 

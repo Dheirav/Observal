@@ -1,14 +1,13 @@
 # SPDX-FileCopyrightText: 2026 Lokesh Selvam <lokeshselvam7025@gmail.com>
+# SPDX-FileCopyrightText: 2026 Hari Srinivasan <harisrini21@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 
 """Teamspace visibility and open creation.
 
-Private teamspaces work like private GitHub orgs: hidden from plain users who
-are not members — discovery, by-handle resolution, detail, and join requests
-all answer as if the teamspace does not exist — while members, global
-reviewers, admins, and super_admins keep seeing them. Visibility is changed by
-team owners and team reviewers (and deployment admins). Creation is open to
-every signed-in user, who becomes the new teamspace's owner.
+Private teamspaces work like private GitHub orgs: hidden from users who are
+not members, including global reviewers. Deployment admins retain operational
+access. Visibility is changed only by team owners and deployment admins.
+Creation is open to every signed-in user, who becomes the new teamspace owner.
 """
 
 from __future__ import annotations
@@ -167,10 +166,10 @@ async def test_private_team_is_hidden_from_plain_non_members_everywhere(sessions
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("who", ["member", "global_reviewer", "admin"])
-async def test_private_team_stays_visible_to_members_and_global_roles(sessions, who):
-    owner, team_reviewer, member, _outsider, global_reviewer, admin, team = await _seed(sessions)
-    actor = {"member": member, "global_reviewer": global_reviewer, "admin": admin}[who]
+@pytest.mark.parametrize("who", ["member", "admin"])
+async def test_private_team_stays_visible_to_members_and_admins(sessions, who):
+    _owner, _team_reviewer, member, _outsider, _global_reviewer, admin, team = await _seed(sessions)
+    actor = {"member": member, "admin": admin}[who]
     async with _client(sessions, actor) as (client, _):
         listing = await client.get("/api/v1/teams/all")
         by_handle = await client.get(f"/api/v1/teams/by-handle/{team.handle}")
@@ -188,28 +187,34 @@ async def _set_visibility(sessions, actor, team_id, visibility):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("who", ["owner", "team_reviewer", "admin"])
-async def test_owners_reviewers_and_admins_change_visibility(sessions, who):
-    owner, team_reviewer, _member, _outsider, _gr, admin, team = await _seed(sessions)
-    actor = {"owner": owner, "team_reviewer": team_reviewer, "admin": admin}[who]
+@pytest.mark.parametrize("who", ["owner", "admin"])
+async def test_owners_and_admins_change_visibility(sessions, who):
+    owner, _team_reviewer, _member, _outsider, _gr, admin, team = await _seed(sessions)
+    actor = {"owner": owner, "admin": admin}[who]
     response = await _set_visibility(sessions, actor, team.id, "public")
     assert response.status_code == 200
     assert response.json()["visibility"] == "public"
 
 
 @pytest.mark.asyncio
-async def test_plain_member_cannot_change_visibility(sessions):
-    _owner, _rev, member, _outsider, _gr, _admin, team = await _seed(sessions)
-    response = await _set_visibility(sessions, member, team.id, "public")
+@pytest.mark.parametrize("who", ["team_reviewer", "member"])
+async def test_non_owner_members_cannot_change_visibility(sessions, who):
+    _owner, team_reviewer, member, _outsider, _gr, _admin, team = await _seed(sessions)
+    actor = {"team_reviewer": team_reviewer, "member": member}[who]
+    response = await _set_visibility(sessions, actor, team.id, "public")
     assert response.status_code == 403
 
 
 @pytest.mark.asyncio
-async def test_global_reviewer_sees_but_cannot_change_visibility(sessions):
-    """Global reviewers see private teamspaces; changing them stays a team control."""
+async def test_global_reviewer_cannot_see_or_change_private_team(sessions):
     _owner, _rev, _member, _outsider, global_reviewer, _admin, team = await _seed(sessions)
+    async with _client(sessions, global_reviewer) as (client, _):
+        listing = await client.get("/api/v1/teams/all")
+        detail = await client.get(f"/api/v1/teams/by-handle/{team.handle}")
     response = await _set_visibility(sessions, global_reviewer, team.id, "public")
-    assert response.status_code == 403
+    assert team.handle not in {row["handle"] for row in listing.json()}
+    assert detail.status_code == 404
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -254,6 +259,58 @@ async def test_claim_creates_a_private_owned_teamspace_and_is_idempotent(session
     async with _client(sessions, stranger) as (client, _):
         listing = await client.get("/api/v1/teams/all")
     assert body["handle"] not in {t["handle"] for t in listing.json()}
+
+
+@pytest.mark.asyncio
+async def test_personal_teamspace_repairs_and_enforces_strict_invariants(sessions):
+    async with sessions() as db:
+        creator = await _user(db)
+        stranger = await _user(db)
+        await db.commit()
+
+    async with _client(sessions, creator) as (client, _):
+        claimed = await client.post("/api/v1/teams/claim-personal")
+    team_id = uuid.UUID(claimed.json()["id"])
+
+    async with sessions() as db:
+        creator_membership = await db.scalar(
+            select(TeamMembership).where(
+                TeamMembership.team_id == team_id,
+                TeamMembership.user_id == creator.id,
+            )
+        )
+        creator_membership.role = TeamRole.member
+        db.add(TeamMembership(team_id=team_id, user_id=stranger.id, role=TeamRole.owner))
+        await db.commit()
+
+    async with _client(sessions, creator) as (client, _):
+        repaired = await client.post("/api/v1/teams/claim-personal")
+        visibility = await client.patch(f"/api/v1/teams/{team_id}/visibility", json={"visibility": "public"})
+        add_owner = await client.post(
+            f"/api/v1/teams/{team_id}/members",
+            json={"user_id": str(stranger.id), "role": "owner"},
+        )
+        remove_creator = await client.delete(f"/api/v1/teams/{team_id}/members/{creator.id}")
+        leave = await client.post(f"/api/v1/teams/{team_id}/leave")
+        invite = await client.post(f"/api/v1/teams/{team_id}/invites", json={})
+        deleted = await client.delete(f"/api/v1/teams/{team_id}")
+    async with _client(sessions, stranger) as (client, _):
+        join = await client.post(f"/api/v1/teams/{team_id}/join-requests", json={})
+
+    assert repaired.json()["visibility"] == "private"
+    assert visibility.status_code == 409
+    assert add_owner.status_code == 409
+    assert remove_creator.status_code == 409
+    assert leave.status_code == 409
+    assert invite.status_code == 409
+    assert deleted.status_code == 409
+    assert join.status_code == 404
+
+    async with sessions() as db:
+        memberships = (
+            (await db.execute(select(TeamMembership).where(TeamMembership.team_id == team_id))).scalars().all()
+        )
+    assert [(membership.user_id, membership.role) for membership in memberships] == [(creator.id, TeamRole.owner)]
 
 
 @pytest.mark.asyncio

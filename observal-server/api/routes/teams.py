@@ -19,6 +19,7 @@ from models.team_invite import TeamInvite
 from models.user import User, UserRole
 from schemas.team import (
     TeamCreateRequest,
+    TeamInviteCallerRequestResponse,
     TeamInviteCreatedResponse,
     TeamInviteCreateRequest,
     TeamInvitePreviewRequest,
@@ -35,12 +36,10 @@ from schemas.team import (
 )
 from services.inbox import sources as inbox_sources
 from services.security_events import EventType, SecurityEvent, Severity, emit_security_event
-from services.team_invites import invite_state, redeemable_team_invite
+from services.team_invites import invite_state, redeemable_team_invite, team_invite_by_token
 from services.teamspace import (
-    REVIEWING_TEAM_ROLES,
     count_owners,
     is_admin,
-    is_global_reviewer,
     reserve_handle,
     slugify_handle,
     team_membership,
@@ -72,7 +71,7 @@ async def _load_visible_team(db: AsyncSession, team_id: uuid.UUID, user: User) -
     """Load a team the caller may see, answering 404 (never 403) when hidden.
 
     A private teamspace is indistinguishable from a nonexistent one for plain
-    users outside it; members and global reviewers/admins see it normally.
+    users outside it; only members and deployment admins see it normally.
     """
     team = await _load_team(db, team_id)
     membership = await team_membership(db, team.id, user.id)
@@ -158,9 +157,8 @@ async def all_teams(
         .outerjoin(my_roles, my_roles.c.team_id == Team.id)
         .order_by(Team.name)
     )
-    # Private teamspaces are hidden from plain users who are not members;
-    # global reviewers, admins, and super_admins see everything.
-    if not is_global_reviewer(current_user):
+    # Private teamspaces are visible only to members and deployment admins.
+    if not is_admin(current_user):
         stmt = stmt.where(or_(Team.is_private == False, my_roles.c.role.is_not(None)))  # noqa: E712
     rows = (await db.execute(stmt)).all()
     return [
@@ -189,8 +187,8 @@ async def team_by_handle(
 
     Public teamspaces resolve for any signed-in user — they are already
     enumerable through GET /teams/all. Private ones resolve only for members
-    and global reviewers/admins and otherwise answer 404, exactly like a
-    handle that does not exist. Anonymous callers get the standard 401 sign-in
+    and deployment admins and otherwise answer 404, exactly like a handle
+    that does not exist. Anonymous callers get the standard 401 sign-in
     challenge from require_role, which the web app turns into a login redirect
     that returns to the requested page.
     """
@@ -226,22 +224,47 @@ async def preview_team_invite(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
-    """Show the limited private-team summary named by an invitation token."""
-    del current_user
-    invite = await redeemable_team_invite(db, req.token)
+    """Show invite availability and the caller's durable request state."""
+    invite = await team_invite_by_token(db, req.token)
     if invite is None:
         return TeamInvitePreviewResponse(valid=False)
+    state = invite_state(invite)
+    request = (
+        await db.execute(
+            select(TeamMembershipRequest)
+            .where(
+                TeamMembershipRequest.invite_id == invite.id,
+                TeamMembershipRequest.user_id == current_user.id,
+            )
+            .order_by(TeamMembershipRequest.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if state != "active" and request is None:
+        return TeamInvitePreviewResponse(valid=False, invite_state=state)
     team = await db.get(Team, invite.team_id)
-    if team is None or not team.is_private:
-        return TeamInvitePreviewResponse(valid=False)
+    if team is None or team.is_personal:
+        return TeamInvitePreviewResponse(valid=False, invite_state=state)
     inviter = await db.get(User, invite.invited_by) if invite.invited_by else None
     return TeamInvitePreviewResponse(
-        valid=True,
+        valid=state == "active",
+        invite_state=state,
         team_id=team.id,
         team_name=team.name,
         team_handle=team.handle,
         team_description=team.description,
         invited_by=(inviter.name or inviter.username) if inviter else None,
+        request=(
+            TeamInviteCallerRequestResponse(
+                id=request.id,
+                status=request.status.value,
+                decision_reason=request.decision_reason,
+                created_at=request.created_at,
+                decided_at=request.decided_at,
+            )
+            if request
+            else None
+        ),
     )
 
 
@@ -312,6 +335,26 @@ async def create_team(
     )
 
 
+async def _ensure_personal_team_invariants(db: AsyncSession, team: Team, user: User) -> None:
+    if team.created_by != user.id:
+        raise HTTPException(status_code=403, detail="Only the personal teamspace creator may claim it")
+    team.is_private = True
+    memberships = (
+        await db.execute(select(TeamMembership).where(TeamMembership.team_id == team.id).with_for_update())
+    ).scalars()
+    creator_membership = None
+    for membership in memberships:
+        if membership.user_id == user.id:
+            creator_membership = membership
+        else:
+            await db.delete(membership)
+    if creator_membership is None:
+        db.add(TeamMembership(team_id=team.id, user_id=user.id, role=TeamRole.owner))
+    else:
+        creator_membership.role = TeamRole.owner
+    await db.commit()
+
+
 async def _personal_team_response(db: AsyncSession, team: Team, user: User) -> TeamResponse:
     membership = await team_membership(db, team.id, user.id)
     member_count = await db.scalar(select(func.count(TeamMembership.id)).where(TeamMembership.team_id == team.id))
@@ -338,6 +381,7 @@ async def claim_personal_teamspace(
         await db.execute(select(Team).where(Team.created_by == current_user.id, Team.is_personal.is_(True)))
     ).scalar_one_or_none()
     if personal is not None:
+        await _ensure_personal_team_invariants(db, personal, current_user)
         return await _personal_team_response(db, personal, current_user)
 
     display = (current_user.name or current_user.username or "My").strip()
@@ -368,8 +412,10 @@ async def claim_personal_teamspace(
                         )
                     ).scalar_one_or_none()
                     if personal is not None:
+                        await _ensure_personal_team_invariants(db, personal, current_user)
                         return await _personal_team_response(db, personal, current_user)
                     raise
+                await _ensure_personal_team_invariants(db, existing, current_user)
                 return await _personal_team_response(db, existing, current_user)
             continue
 
@@ -396,6 +442,7 @@ async def claim_personal_teamspace(
                 await db.execute(select(Team).where(Team.created_by == current_user.id, Team.is_personal.is_(True)))
             ).scalar_one_or_none()
             if personal is not None:
+                await _ensure_personal_team_invariants(db, personal, current_user)
                 return await _personal_team_response(db, personal, current_user)
             continue
         await db.refresh(team)
@@ -437,21 +484,18 @@ async def update_team_visibility(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
-    """Flip a teamspace between public and private, GitHub-style.
-
-    Team owners and team reviewers hold this control (plus deployment admins).
-    Going private hides the teamspace from plain non-member users everywhere.
-    Public registry items must be made team-private before this change.
-    """
+    """Flip a normal teamspace between public and private. Owner or admin only."""
     team = await _load_team(db, team_id, for_update=True)
     membership = await team_membership(db, team.id, current_user.id)
-    allowed = is_admin(current_user) or (membership is not None and membership.role in REVIEWING_TEAM_ROLES)
+    allowed = is_admin(current_user) or (membership is not None and membership.role == TeamRole.owner)
     if not allowed:
         # Members and outsiders both land here; a plain non-member of a private
         # team gets 404 elsewhere, so keep this 403 for members only.
         if membership is None and not team_visible_to(team, membership, current_user):
             raise HTTPException(status_code=404, detail="Team not found")
-        raise HTTPException(status_code=403, detail="Only team owners and reviewers can change visibility")
+        raise HTTPException(status_code=403, detail="Only team owners can change visibility")
+    if team.is_personal and req.visibility != "private":
+        raise HTTPException(status_code=409, detail="Personal teamspaces are always private")
 
     if req.visibility == "private" and not team.is_private:
         public_items = await _team_owned_listing_counts(db, team.id, public_only=True)
@@ -553,6 +597,8 @@ async def delete_team(
     current_user: User = Depends(require_role(UserRole.user)),
 ):
     team = await _require_owner_or_admin(db, team_id, current_user)
+    if getattr(team, "is_personal", False) is True:
+        raise HTTPException(status_code=409, detail="Personal teamspaces cannot be deleted")
 
     # Refuse while the teamspace still owns listings. ON DELETE SET NULL would
     # otherwise leave every one of them with is_private=True and team_id=NULL:
@@ -631,6 +677,8 @@ async def upsert_team_member(
     current_user: User = Depends(require_role(UserRole.user)),
 ):
     team = await _require_owner_or_admin(db, team_id, current_user)
+    if team.is_personal:
+        raise HTTPException(status_code=409, detail="Personal teamspaces cannot add members or change roles")
     target = await _resolve_member(db, req)
     membership = await team_membership(db, team.id, target.id)
     if membership:
@@ -662,6 +710,8 @@ async def remove_team_member(
     current_user: User = Depends(require_role(UserRole.user)),
 ):
     team = await _require_owner_or_admin(db, team_id, current_user)
+    if team.is_personal:
+        raise HTTPException(status_code=409, detail="The personal teamspace creator cannot be removed")
     membership = await team_membership(db, team.id, user_id)
     if not membership:
         raise HTTPException(status_code=404, detail="Membership not found")
@@ -678,6 +728,8 @@ async def leave_team(
     current_user: User = Depends(require_role(UserRole.user)),
 ):
     team = await _load_team(db, team_id)
+    if team.is_personal:
+        raise HTTPException(status_code=409, detail="The personal teamspace creator cannot leave")
     membership = await team_membership(db, team.id, current_user.id)
     if not membership:
         raise HTTPException(status_code=404, detail="You are not a member of this team")
@@ -734,6 +786,8 @@ async def create_team_invite(
     team = await _require_owner_or_admin(db, team_id, current_user)
     if not team.is_private:
         raise HTTPException(status_code=409, detail="Public teamspaces use Share links")
+    if team.is_personal:
+        raise HTTPException(status_code=409, detail="Personal teamspaces do not support invitation links")
 
     token = secrets.token_urlsafe(32)
     now = datetime.now(UTC)
@@ -918,6 +972,8 @@ async def create_join_request(
 ):
     """Ask for member access to a teamspace. Owners decide; the link never does."""
     team = await _load_team(db, team_id)
+    if team.is_personal:
+        raise HTTPException(status_code=404, detail="Team not found")
     membership = await team_membership(db, team.id, current_user.id)
     if membership:
         raise HTTPException(status_code=409, detail="You are already a member of this teamspace")

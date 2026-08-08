@@ -100,13 +100,23 @@ class TeamInviteCreatedResponse(TeamInviteResponse):
     url: str
 
 
+class TeamInviteCallerRequestResponse(BaseModel):
+    id: uuid.UUID
+    status: str
+    decision_reason: str | None = None
+    created_at: datetime | None = None
+    decided_at: datetime | None = None
+
+
 class TeamInvitePreviewResponse(BaseModel):
     valid: bool
+    invite_state: str | None = None
     team_id: uuid.UUID | None = None
     team_name: str | None = None
     team_handle: str | None = None
     team_description: str | None = None
     invited_by: str | None = None
+    request: TeamInviteCallerRequestResponse | None = None
 
 
 class TeamJoinRequestResponse(BaseModel):

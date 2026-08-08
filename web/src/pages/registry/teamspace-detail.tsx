@@ -255,7 +255,7 @@ function ComponentsTab({
 function MembersTab({ team }: { team: Team }) {
 	const isOwner = team.role === "owner";
 	const isMember = Boolean(team.role);
-	const canManageMembers = isOwner || hasMinRole(getUserRole(), "admin");
+	const canManageMembers = !team.is_personal && (isOwner || hasMinRole(getUserRole(), "admin"));
 	const canViewMembers = isMember || hasMinRole(getUserRole(), "admin");
 	const { data: members = [], isLoading, isError, error, refetch } = useTeamMembers(team.id, canViewMembers);
 	const upsert = useUpsertTeamMember(team.id);
@@ -548,14 +548,9 @@ function ReviewTab({
 	);
 }
 
-/**
- * Public/private toggle, GitHub-style. Team owners and team reviewers hold it
- * (plus global admins). Going private hides the teamspace from non-member
- * plain users everywhere; members, admins, and global reviewers keep access.
- */
+/** Normal teamspace visibility control. Personal teamspaces stay private. */
 function VisibilityControl({ team }: { team: Team }) {
-	const canChange =
-		team.role === "owner" || team.role === "reviewer" || hasMinRole(getUserRole(), "admin");
+	const canChange = !team.is_personal && (team.role === "owner" || hasMinRole(getUserRole(), "admin"));
 	const updateVisibility = useUpdateTeamVisibility(team.id);
 	if (!canChange) return null;
 	const isPrivate = team.visibility === "private";
@@ -593,7 +588,7 @@ function requesterLabel(request: TeamJoinRequest): string {
  */
 function JoinRequestControl({ team }: { team: Team }) {
 	const isAdmin = hasMinRole(getUserRole(), "admin");
-	const eligible = !team.role && !isAdmin;
+	const eligible = !team.is_personal && !team.role && !isAdmin;
 	const { data: mine = [] } = useMyJoinRequests(team.id, eligible);
 	const requestJoin = useRequestJoin(team.id);
 	const cancelRequest = useCancelJoinRequest(team.id);
@@ -1085,7 +1080,8 @@ export default function TeamspaceDetailPage() {
 
 	// Membership requests are owners-and-admins only — a narrower audience than
 	// the listing Review tab, which team reviewers also see.
-	const canManageRequests = team?.role === "owner" || hasMinRole(getUserRole(), "admin");
+	const canManageRequests =
+		!team?.is_personal && (team?.role === "owner" || hasMinRole(getUserRole(), "admin"));
 	const canManageInvites = team?.visibility === "private" && canManageRequests;
 	const joinRequestsQuery = useJoinRequests(team?.id, canManageRequests);
 	const joinRequests = joinRequestsQuery.data ?? [];
@@ -1217,7 +1213,7 @@ export default function TeamspaceDetailPage() {
 							) : null}
 							<VisibilityControl team={team} />
 							<JoinRequestControl team={team} />
-							{isMember && (
+							{isMember && !team.is_personal && (
 								<Button
 									variant="outline"
 									size="sm"
@@ -1227,7 +1223,7 @@ export default function TeamspaceDetailPage() {
 									<LogOut className="mr-1.5 h-3.5 w-3.5" /> Leave
 								</Button>
 							)}
-							{isOwner && (
+							{isOwner && !team.is_personal && (
 								<Button variant="destructive" size="sm" onClick={() => setDeleteOpen(true)} disabled={deleteTeam.isPending}>
 									<Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete
 								</Button>
