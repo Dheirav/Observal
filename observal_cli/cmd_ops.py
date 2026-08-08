@@ -1785,7 +1785,7 @@ def downgrade(
         if pin_legacy_auto_update:
             try:
                 config.save({"auto_update": previous_auto_update})
-            except Exception as restore_error:
+            except (Exception, SystemExit) as restore_error:
                 rprint(f"[yellow]Warning: could not restore auto-update setting: {restore_error}[/yellow]")
         raise
     finally:
