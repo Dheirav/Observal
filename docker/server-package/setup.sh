@@ -188,17 +188,7 @@ fi
 
 info "Starting Observal services"
 cd "$INSTALL_DIR"
-docker compose "${profile_args[@]}" "${compose_args[@]}" --env-file .env up -d
-
-info "Waiting for API to be healthy"
-for i in $(seq 1 60); do
-    if docker compose "${profile_args[@]}" "${compose_args[@]}" exec -T observal-api \
-        python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/readyz')" 2>/dev/null; then
-        break
-    fi
-    [ "$i" -ne 60 ] || die "API did not become healthy in 5 minutes"
-    sleep 5
-done
+docker compose "${profile_args[@]}" "${compose_args[@]}" --env-file .env up -d --wait --wait-timeout 300
 
 docker compose "${profile_args[@]}" "${compose_args[@]}" restart observal-lb
 
