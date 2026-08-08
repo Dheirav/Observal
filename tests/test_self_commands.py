@@ -188,6 +188,31 @@ class TestSelfDowngrade:
         assert result.exit_code != 0
         assert mock_auto_update_config["auto_update"] is True
 
+    def test_downgrade_warns_when_auto_update_restore_fails(
+        self, mock_version, mock_install_uv, mock_lock, mock_auto_update_config, monkeypatch
+    ):
+        save_calls = []
+
+        def save_config(updates):
+            save_calls.append(updates)
+            if len(save_calls) == 2:
+                raise SystemExit("permission denied")
+            mock_auto_update_config.update(updates)
+
+        def fail_install(*args, **kwargs):
+            raise RuntimeError("install failed")
+
+        monkeypatch.setattr("observal_cli.cmd_ops.config.save", save_config)
+        monkeypatch.setattr("observal_cli.cmd_ops._do_install", fail_install)
+
+        result = runner.invoke(_get_app(), ["self", "downgrade", "--version", "1.1.0", "--force"])
+
+        assert isinstance(result.exception, RuntimeError)
+        assert str(result.exception) == "install failed"
+        assert save_calls == [{"auto_update": False}, {"auto_update": True}]
+        assert "could not restore auto-update setting" in result.output
+        assert "permission denied" in result.output
+
     def test_modern_downgrade_does_not_change_auto_update(
         self, mock_install_uv, mock_lock, mock_auto_update_config, monkeypatch
     ):
