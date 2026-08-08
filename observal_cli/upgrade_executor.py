@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -51,7 +52,7 @@ def execute(install_info: InstallInfo, target_version: str, direction: str, spin
         raise typer.Exit(1)
 
     # Post-install verification
-    _verify_install(direction)
+    _verify_install(install_info, target_version, direction)
 
 
 def _install_via_uv(target_version: str, direction: str, spinner) -> None:
@@ -235,11 +236,45 @@ def _replace_binary(install_info: InstallInfo, content: bytes, target_version: s
         raise typer.Exit(1)
 
 
-def _verify_install(direction: str) -> None:
-    """Run observal --version to confirm the install worked."""
+def _verify_install(install_info: InstallInfo, target_version: str, direction: str) -> None:
+    """Verify that the updated executable reports the requested version."""
+    from packaging.version import InvalidVersion, Version
+
+    executable = str(install_info.path)
     try:
-        result = subprocess.run(["observal", "--version"], capture_output=True, text=True, timeout=10)
-        new_version = result.stdout.strip().split()[-1] if result.returncode == 0 else "unknown"
-        rprint(f"[green]{direction.capitalize()}d to v{new_version}[/green]")
-    except (subprocess.TimeoutExpired, OSError, IndexError):
-        rprint(f"[green]{direction.capitalize()} complete. Restart your shell to use the new version.[/green]")
+        result = subprocess.run([executable, "--version"], capture_output=True, text=True, timeout=10)
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        rprint(f"[red]{direction.capitalize()} verification failed:[/red] {exc}")
+        rprint(f"[dim]Executable: {executable}[/dim]")
+        raise typer.Exit(1) from exc
+
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
+        rprint(f"[red]{direction.capitalize()} verification failed:[/red] {detail}")
+        rprint(f"[dim]Executable: {executable}[/dim]")
+        raise typer.Exit(1)
+
+    output = result.stdout.strip() or result.stderr.strip()
+    match = re.search(r"(?<![\w.])v?(\d+(?:\.\d+){2}(?:[-+][0-9A-Za-z.-]+)?)", output)
+    if not match:
+        rprint(f"[red]{direction.capitalize()} verification failed:[/red] could not parse version from {output!r}")
+        rprint(f"[dim]Executable: {executable}[/dim]")
+        raise typer.Exit(1)
+
+    try:
+        actual = Version(match.group(1))
+        expected = Version(target_version)
+    except InvalidVersion as exc:
+        rprint(f"[red]{direction.capitalize()} verification failed:[/red] invalid version output {output!r}")
+        rprint(f"[dim]Executable: {executable}[/dim]")
+        raise typer.Exit(1) from exc
+
+    if actual != expected:
+        rprint(
+            f"[red]{direction.capitalize()} verification failed:[/red] "
+            f"expected v{expected}, but {executable} reports v{actual}."
+        )
+        rprint("[dim]Check for multiple Observal installations on PATH.[/dim]")
+        raise typer.Exit(1)
+
+    rprint(f"[green]{direction.capitalize()}d to v{actual}[/green]")
