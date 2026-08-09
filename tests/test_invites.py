@@ -199,8 +199,8 @@ async def test_authenticated_recipient_previews_and_requests_access(sessions):
 
     async with _client(sessions, outsider) as client:
         durable = await client.post("/api/v1/teams/invites/preview", json={"token": token})
-    assert durable.json()["valid"] is False
-    assert durable.json()["invite_state"] == "exhausted"
+    assert durable.json()["valid"] is True
+    assert durable.json()["invite_state"] == "active"
     assert durable.json()["team_handle"] == team.handle
     assert durable.json()["request"]["status"] == "pending"
 
@@ -217,7 +217,7 @@ async def test_authenticated_recipient_previews_and_requests_access(sessions):
         invite = (await db.execute(select(TeamInvite))).scalar_one()
         assert membership is None
         assert request.user_id == outsider.id
-        assert invite.use_count == 1
+        assert invite.use_count == 0
         second_outsider = await _user(db)
         await db.commit()
 
@@ -227,8 +227,8 @@ async def test_authenticated_recipient_previews_and_requests_access(sessions):
             f"/api/v1/teams/{team.id}/join-requests",
             json={"invite_token": token},
         )
-    assert exhausted_preview.json()["valid"] is False
-    assert exhausted_request.status_code == 404
+    assert exhausted_preview.json()["valid"] is True
+    assert exhausted_request.status_code == 201
 
 
 @pytest.mark.asyncio

@@ -111,6 +111,7 @@ class TeamInviteCallerRequestResponse(BaseModel):
 class TeamInvitePreviewResponse(BaseModel):
     valid: bool
     invite_state: str | None = None
+    is_member: bool = False
     team_id: uuid.UUID | None = None
     team_name: str | None = None
     team_handle: str | None = None

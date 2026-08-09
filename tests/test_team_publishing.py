@@ -198,11 +198,12 @@ class TestResolvePublishTargetAutoApprove:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("role", [UserRole.admin, UserRole.super_admin])
-    async def test_admin_may_publish_into_a_team_they_are_not_in(self, role):
+    @pytest.mark.parametrize("private", [False, True])
+    async def test_admin_may_publish_into_a_team_they_are_not_in(self, role, private):
         """Admins keep the cross-team capability because they can still read the result."""
         team_id = uuid.uuid4()
         db = _mock_db([_membership(None)])
-        db.get = AsyncMock(return_value=SimpleNamespace(id=team_id, handle="platform-tools", is_private=False))
+        db.get = AsyncMock(return_value=SimpleNamespace(id=team_id, handle="platform-tools", is_private=private))
 
         target = await resolve_publish_target(db, _user(role), "Internal Tool", team_id=team_id, visibility="team")
         # They can publish cross-team, but even admins do not skip review.

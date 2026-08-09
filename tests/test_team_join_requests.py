@@ -332,6 +332,31 @@ async def test_approving_someone_already_added_directly_does_not_duplicate(sessi
 
 
 @pytest.mark.asyncio
+async def test_direct_member_add_reconciles_pending_request_and_allows_future_rerequest(sessions):
+    owner, _second, _member, outsider, team = await _seed(sessions)
+    request_id = await _pending_request(sessions, team, outsider)
+
+    async with _client(sessions, owner) as (client, _):
+        added = await client.post(
+            f"/api/v1/teams/{team.id}/members",
+            json={"user_id": str(outsider.id), "role": "member"},
+        )
+        rejected = await client.post(f"/api/v1/teams/{team.id}/join-requests/{request_id}/reject", json={})
+        removed = await client.delete(f"/api/v1/teams/{team.id}/members/{outsider.id}")
+
+    assert added.status_code == 200
+    assert rejected.status_code == 409
+    assert removed.status_code == 204
+    rows = await _request_rows(sessions, team.id)
+    assert rows[0].status == TeamJoinRequestStatus.approved
+    assert rows[0].decision_reason == "Added directly by a team owner"
+
+    async with _client(sessions, outsider) as (client, _):
+        requested_again = await client.post(f"/api/v1/teams/{team.id}/join-requests", json={})
+    assert requested_again.status_code == 201
+
+
+@pytest.mark.asyncio
 async def test_requester_can_cancel_and_owner_items_clear(sessions):
     _owner, _second, _member, outsider, team = await _seed(sessions)
     request_id = await _pending_request(sessions, team, outsider)

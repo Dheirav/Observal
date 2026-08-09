@@ -9,13 +9,26 @@ import type { TeamMemberUpsertBody, TeamUpdateBody } from "@/lib/types";
 const JOIN_REQUESTS_KEY = (teamId: string | undefined) => ["teams", teamId, "join-requests"];
 
 const TEAMS_STALE_MS = 5 * 60 * 1000;
+const TEAM_REFRESH_MS = 5 * 1000;
 
 export function useTeams() {
-	return useQuery({ queryKey: ["teams"], queryFn: teams.list, staleTime: TEAMS_STALE_MS });
+	return useQuery({
+		queryKey: ["teams"],
+		queryFn: teams.list,
+		staleTime: TEAMS_STALE_MS,
+		refetchInterval: TEAM_REFRESH_MS,
+		refetchOnWindowFocus: "always",
+	});
 }
 
 export function useAllTeams() {
-	return useQuery({ queryKey: ["teams", "all"], queryFn: teams.listAll, staleTime: TEAMS_STALE_MS });
+	return useQuery({
+		queryKey: ["teams", "all"],
+		queryFn: teams.listAll,
+		staleTime: TEAMS_STALE_MS,
+		refetchInterval: TEAM_REFRESH_MS,
+		refetchOnWindowFocus: "always",
+	});
 }
 
 export function useTeam(id?: string) {
@@ -24,6 +37,8 @@ export function useTeam(id?: string) {
 		queryFn: () => teams.get(id || ""),
 		enabled: !!id,
 		staleTime: TEAMS_STALE_MS,
+		refetchInterval: TEAM_REFRESH_MS,
+		refetchOnWindowFocus: "always",
 	});
 }
 
@@ -42,6 +57,8 @@ export function useTeamByHandle(handle: string | undefined) {
 		queryFn: () => teams.byHandle(handle!),
 		enabled: !!handle,
 		staleTime: TEAMS_STALE_MS,
+		refetchInterval: TEAM_REFRESH_MS,
+		refetchOnWindowFocus: "always",
 		retry: (failureCount, error) =>
 			(error as Error & { status?: number }).status === 404 ? false : failureCount < 2,
 	});
@@ -61,6 +78,7 @@ export function useTeamMembers(teamId?: string, enabled = true) {
 		queryKey: ["teams", teamId, "members"],
 		queryFn: () => teams.members(teamId || ""),
 		enabled: !!teamId && enabled,
+		refetchOnWindowFocus: "always",
 	});
 }
 
@@ -213,6 +231,8 @@ export function useTeamInvitePreview(token: string | undefined) {
 		queryKey: ["team-invite", token],
 		queryFn: () => teams.previewInvite(token || ""),
 		enabled: !!token,
+		refetchInterval: TEAM_REFRESH_MS,
+		refetchOnWindowFocus: "always",
 		retry: false,
 	});
 }
@@ -223,6 +243,7 @@ export function useJoinRequests(teamId: string | undefined, enabled = true) {
 		queryKey: JOIN_REQUESTS_KEY(teamId),
 		queryFn: () => teams.joinRequests(teamId || ""),
 		enabled: !!teamId && enabled,
+		refetchOnWindowFocus: "always",
 	});
 }
 
@@ -232,6 +253,7 @@ export function useMyJoinRequests(teamId: string | undefined, enabled = true) {
 		queryKey: ["teams", teamId, "join-requests", "mine"],
 		queryFn: () => teams.myJoinRequests(teamId || ""),
 		enabled: !!teamId && enabled,
+		refetchOnWindowFocus: "always",
 	});
 }
 

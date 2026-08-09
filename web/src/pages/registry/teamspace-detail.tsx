@@ -587,8 +587,7 @@ function requesterLabel(request: TeamJoinRequest): string {
  * path onto the roster.
  */
 function JoinRequestControl({ team }: { team: Team }) {
-	const isAdmin = hasMinRole(getUserRole(), "admin");
-	const eligible = !team.is_personal && !team.role && !isAdmin;
+	const eligible = !team.is_personal && !team.role;
 	const { data: mine = [] } = useMyJoinRequests(team.id, eligible);
 	const requestJoin = useRequestJoin(team.id);
 	const cancelRequest = useCancelJoinRequest(team.id);
@@ -1073,15 +1072,15 @@ export default function TeamspaceDetailPage() {
 	const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
 	const [deleteOpen, setDeleteOpen] = useState(false);
 	const [componentDialogOpen, setComponentDialogOpen] = useState(false);
+	const isAdmin = hasMinRole(getUserRole(), "admin");
 
-	const canReview = team?.role ? REVIEWING_TEAM_ROLES.includes(team.role) : false;
+	const canReview = isAdmin || (team?.role ? REVIEWING_TEAM_ROLES.includes(team.role) : false);
 	const reviewQueue = useTeamReviewQueue(team?.id, canReview);
 	const reviewItems = reviewQueue.data ?? [];
 
 	// Membership requests are owners-and-admins only — a narrower audience than
 	// the listing Review tab, which team reviewers also see.
-	const canManageRequests =
-		!team?.is_personal && (team?.role === "owner" || hasMinRole(getUserRole(), "admin"));
+	const canManageRequests = !team?.is_personal && (team?.role === "owner" || isAdmin);
 	const canManageInvites = team?.visibility === "private" && canManageRequests;
 	const joinRequestsQuery = useJoinRequests(team?.id, canManageRequests);
 	const joinRequests = joinRequestsQuery.data ?? [];
@@ -1161,6 +1160,8 @@ export default function TeamspaceDetailPage() {
 
 	const isMember = Boolean(team.role);
 	const isOwner = team.role === "owner";
+	const canPublish = isMember || (isAdmin && !team.is_personal);
+	const canDelete = isOwner || isAdmin;
 
 	return (
 		<>
@@ -1186,7 +1187,7 @@ export default function TeamspaceDetailPage() {
 									<span className="font-mono">{team.handle}</span>
 									<span aria-hidden="true">·</span>
 									<Badge variant="outline" className="px-1.5 py-0 text-[11px] font-medium capitalize">
-										{team.role ?? "discoverable"}
+										{team.role ?? (isAdmin ? "admin access" : "discoverable")}
 									</Badge>
 									{team.visibility === "private" && (
 										<Badge
@@ -1223,7 +1224,7 @@ export default function TeamspaceDetailPage() {
 									<LogOut className="mr-1.5 h-3.5 w-3.5" /> Leave
 								</Button>
 							)}
-							{isOwner && !team.is_personal && (
+							{canDelete && (
 								<Button variant="destructive" size="sm" onClick={() => setDeleteOpen(true)} disabled={deleteTeam.isPending}>
 									<Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete
 								</Button>
@@ -1251,14 +1252,14 @@ export default function TeamspaceDetailPage() {
 								))}
 							</TabsList>
 
-							{isMember && activeTab === "agents" && (
+							{canPublish && activeTab === "agents" && (
 								<Button asChild size="sm">
 									<Link to="/agents/builder" search={{ team: team.id }}>
 										<Bot /> Build agent
 									</Link>
 								</Button>
 							)}
-							{isMember && activeTab === "components" && (
+							{canPublish && activeTab === "components" && (
 								<Button size="sm" onClick={() => setComponentDialogOpen(true)}>
 									<Plus /> Create component
 								</Button>
@@ -1347,7 +1348,7 @@ export default function TeamspaceDetailPage() {
 					<AlertDialogHeader>
 						<AlertDialogTitle>Delete {team.name}?</AlertDialogTitle>
 						<AlertDialogDescription>
-							This permanently removes the teamspace and its membership records. Published items are not deleted.
+							This permanently removes the empty teamspace and its membership records. Teamspaces that own registry items cannot be deleted.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>

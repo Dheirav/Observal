@@ -200,10 +200,7 @@ async def team_by_handle(
     if not team_visible_to(team, membership, current_user):
         # A hidden teamspace answers exactly like a missing one.
         raise HTTPException(status_code=404, detail="Teamspace not found")
-    if is_admin(current_user):
-        role = _role_value(TeamRole.owner)
-    else:
-        role = _role_value(membership.role) if membership else None
+    role = _role_value(membership.role) if membership else None
     member_count = await db.scalar(select(func.count(TeamMembership.id)).where(TeamMembership.team_id == team.id))
     return TeamResponse(
         id=team.id,
@@ -246,9 +243,11 @@ async def preview_team_invite(
     if team is None or team.is_personal:
         return TeamInvitePreviewResponse(valid=False, invite_state=state)
     inviter = await db.get(User, invite.invited_by) if invite.invited_by else None
+    membership = await team_membership(db, team.id, current_user.id)
     return TeamInvitePreviewResponse(
         valid=state == "active",
         invite_state=state,
+        is_member=membership is not None,
         team_id=team.id,
         team_name=team.name,
         team_handle=team.handle,
@@ -275,12 +274,8 @@ async def team_detail(
     current_user: User = Depends(require_role(UserRole.user)),
 ):
     team = await _load_visible_team(db, team_id, current_user)
-    role = None
-    if not is_admin(current_user):
-        membership = await team_membership(db, team.id, current_user.id)
-        role = _role_value(membership.role) if membership else None
-    else:
-        role = _role_value(TeamRole.owner)
+    membership = await team_membership(db, team.id, current_user.id)
+    role = _role_value(membership.role) if membership else None
     return TeamResponse(
         id=team.id,
         name=team.name,
@@ -339,15 +334,12 @@ async def _ensure_personal_team_invariants(db: AsyncSession, team: Team, user: U
     if team.created_by != user.id:
         raise HTTPException(status_code=403, detail="Only the personal teamspace creator may claim it")
     team.is_private = True
-    memberships = (
-        await db.execute(select(TeamMembership).where(TeamMembership.team_id == team.id).with_for_update())
-    ).scalars()
-    creator_membership = None
-    for membership in memberships:
-        if membership.user_id == user.id:
-            creator_membership = membership
-        else:
-            await db.delete(membership)
+    memberships = list(
+        (await db.execute(select(TeamMembership).where(TeamMembership.team_id == team.id).with_for_update())).scalars()
+    )
+    if any(membership.user_id != user.id for membership in memberships):
+        raise HTTPException(status_code=409, detail="A personal teamspace cannot have other members")
+    creator_membership = next((membership for membership in memberships if membership.user_id == user.id), None)
     if creator_membership is None:
         db.add(TeamMembership(team_id=team.id, user_id=user.id, role=TeamRole.owner))
     else:
@@ -398,6 +390,19 @@ async def claim_personal_teamspace(
                 and existing.description == _PERSONAL_TEAM_DESCRIPTION
             )
             if membership is not None and membership.role == TeamRole.owner and legacy_personal:
+                member_ids = set(
+                    (
+                        await db.execute(
+                            select(TeamMembership.user_id)
+                            .where(TeamMembership.team_id == existing.id)
+                            .with_for_update()
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                if member_ids != {current_user.id}:
+                    continue
                 existing.is_personal = True
                 try:
                     await db.commit()
@@ -465,6 +470,7 @@ async def update_team(
         team.description = req.description
     await db.commit()
     await db.refresh(team)
+    membership = await team_membership(db, team.id, current_user.id)
     return TeamResponse(
         id=team.id,
         name=team.name,
@@ -472,7 +478,7 @@ async def update_team(
         description=team.description,
         visibility=team.visibility,
         is_personal=team.is_personal,
-        role=_role_value(TeamRole.owner),
+        role=_role_value(membership.role) if membership else None,
         created_at=team.created_at,
     )
 
@@ -508,6 +514,35 @@ async def update_team_visibility(
 
     changed = team.is_private != (req.visibility == "private")
     team.is_private = req.visibility == "private"
+    if changed and team.is_private:
+        pending_requests = (
+            (
+                await db.execute(
+                    select(TeamMembershipRequest)
+                    .where(
+                        TeamMembershipRequest.team_id == team.id,
+                        TeamMembershipRequest.status == TeamJoinRequestStatus.pending,
+                    )
+                    .with_for_update()
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for pending in pending_requests:
+            pending.status = TeamJoinRequestStatus.rejected
+            pending.decided_by = current_user.id
+            pending.decided_at = datetime.now(UTC)
+            pending.decision_reason = "Teamspace became private"
+            await inbox_sources.on_team_join_decided(
+                db,
+                team,
+                request_id=pending.id,
+                requester_id=pending.user_id,
+                approved=False,
+                actor_id=current_user.id,
+                reason=pending.decision_reason,
+            )
     if changed and not team.is_private:
         await db.execute(
             update(TeamInvite)
@@ -530,9 +565,7 @@ async def update_team_visibility(
                 detail=f"Teamspace '{team.handle}' is now {team.visibility}",
             )
         )
-    role = (
-        _role_value(TeamRole.owner) if is_admin(current_user) else _role_value(membership.role) if membership else None
-    )
+    role = _role_value(membership.role) if membership else None
     return TeamResponse(
         id=team.id,
         name=team.name,
@@ -597,8 +630,6 @@ async def delete_team(
     current_user: User = Depends(require_role(UserRole.user)),
 ):
     team = await _require_owner_or_admin(db, team_id, current_user)
-    if getattr(team, "is_personal", False) is True:
-        raise HTTPException(status_code=409, detail="Personal teamspaces cannot be deleted")
 
     # Refuse while the teamspace still owns listings. ON DELETE SET NULL would
     # otherwise leave every one of them with is_private=True and team_id=NULL:
@@ -692,6 +723,31 @@ async def upsert_team_member(
         membership.role = req.role
     else:
         db.add(TeamMembership(team_id=team.id, user_id=target.id, role=req.role))
+
+    pending = (
+        await db.execute(
+            select(TeamMembershipRequest)
+            .where(
+                TeamMembershipRequest.team_id == team.id,
+                TeamMembershipRequest.user_id == target.id,
+                TeamMembershipRequest.status == TeamJoinRequestStatus.pending,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if pending is not None:
+        pending.status = TeamJoinRequestStatus.approved
+        pending.decided_by = current_user.id
+        pending.decided_at = datetime.now(UTC)
+        pending.decision_reason = "Added directly by a team owner"
+        await inbox_sources.on_team_join_decided(
+            db,
+            team,
+            request_id=pending.id,
+            requester_id=target.id,
+            approved=True,
+            actor_id=current_user.id,
+        )
     await db.commit()
     return TeamMemberResponse(
         id=target.id,
@@ -890,6 +946,21 @@ async def delete_unused_team_invite(
         raise HTTPException(status_code=404, detail="Invite not found")
     if invite.use_count:
         raise HTTPException(status_code=409, detail="Used invites are retained for audit")
+    pending_request = (
+        await db.execute(
+            select(TeamMembershipRequest.id)
+            .where(
+                TeamMembershipRequest.invite_id == invite.id,
+                TeamMembershipRequest.status == TeamJoinRequestStatus.pending,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if pending_request is not None:
+        raise HTTPException(status_code=409, detail="Invite has pending requests")
+    await db.execute(
+        update(TeamMembershipRequest).where(TeamMembershipRequest.invite_id == invite.id).values(invite_id=None)
+    )
     await db.delete(invite)
     await db.commit()
     await _emit_team_invite_event(EventType.TEAM_INVITE_DELETED, invite, current_user, "Unused invite deleted")
@@ -1006,15 +1077,9 @@ async def create_join_request(
     except IntegrityError:
         raise HTTPException(status_code=409, detail="You already have a pending request for this teamspace") from None
 
-    if invite is not None:
-        invite.use_count += 1
     await inbox_sources.on_team_join_requested(db, team, requester_id=current_user.id, message=message)
     await db.commit()
     await _emit_join_event(EventType.TEAM_JOIN_REQUESTED, team, current_user, f"Requested to join '{team.handle}'")
-    if invite is not None:
-        await _emit_team_invite_event(
-            EventType.TEAM_INVITE_REDEEMED, invite, current_user, "Invite used to request access"
-        )
     return _join_request_response(row, current_user)
 
 
@@ -1079,15 +1144,28 @@ async def approve_join_request(
 ):
     """Approve a pending request: the one path a request can become membership."""
     team = await _require_owner_or_admin(db, team_id, current_user)
+    if team.is_personal:
+        raise HTTPException(status_code=409, detail="Personal teamspaces cannot approve join requests")
     row = await _load_join_request(db, team.id, request_id, for_update=True)
     if row.status != TeamJoinRequestStatus.pending:
         raise HTTPException(status_code=409, detail=f"Request already {row.status.value}")
+
+    invite = None
+    if row.invite_id is not None:
+        invite = (
+            await db.execute(select(TeamInvite).where(TeamInvite.id == row.invite_id).with_for_update())
+        ).scalar_one_or_none()
+        if invite is None:
+            raise HTTPException(status_code=409, detail="Invitation no longer exists")
+        if invite.max_uses is not None and invite.use_count >= invite.max_uses:
+            raise HTTPException(status_code=409, detail="Invitation has no remaining uses")
 
     # Approval grants MEMBER only; role upgrades stay owner-initiated through
     # POST /{team_id}/members. A direct member add can race this decision, so
     # recover only when the membership now exists and surface any other
     # integrity failure.
     membership = await team_membership(db, team.id, row.user_id)
+    granted_membership = membership is None
     if not membership:
         try:
             async with db.begin_nested():
@@ -1096,7 +1174,10 @@ async def approve_join_request(
         except IntegrityError:
             if not await team_membership(db, team.id, row.user_id):
                 raise
+            granted_membership = False
 
+    if invite is not None and granted_membership:
+        invite.use_count += 1
     row.status = TeamJoinRequestStatus.approved
     row.decided_by = current_user.id
     row.decided_at = datetime.now(UTC)
@@ -1112,6 +1193,10 @@ async def approve_join_request(
     await _emit_join_event(
         EventType.TEAM_JOIN_DECIDED, team, current_user, f"Approved join request for '{team.handle}'"
     )
+    if invite is not None and granted_membership:
+        await _emit_team_invite_event(
+            EventType.TEAM_INVITE_REDEEMED, invite, current_user, "Invite used to approve membership"
+        )
     requester = await db.get(User, row.user_id)
     return _join_request_response(row, requester, current_user.username)
 
@@ -1161,8 +1246,22 @@ async def cancel_join_request(
 ):
     """Withdraw your own pending request. Owners reject; requesters cancel."""
     team = await _load_team(db, team_id)
-    row = await _load_join_request(db, team.id, request_id, for_update=True)
-    if row.user_id != current_user.id:
+    row = (
+        await db.execute(
+            select(TeamMembershipRequest)
+            .where(
+                TeamMembershipRequest.id == request_id,
+                TeamMembershipRequest.team_id == team.id,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    membership = await team_membership(db, team.id, current_user.id)
+    if row is None or row.user_id != current_user.id:
+        if not team_visible_to(team, membership, current_user):
+            raise HTTPException(status_code=404, detail="Team not found")
+        if row is None:
+            raise HTTPException(status_code=404, detail="Join request not found")
         raise HTTPException(status_code=403, detail="Only the requester can withdraw a request")
     if row.status != TeamJoinRequestStatus.pending:
         raise HTTPException(status_code=409, detail=f"Request already {row.status.value}")

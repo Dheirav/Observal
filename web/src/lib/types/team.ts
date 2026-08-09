@@ -63,6 +63,7 @@ export interface TeamInviteCreated extends TeamInvite {
 export interface TeamInvitePreview {
 	valid: boolean;
 	invite_state?: TeamInviteState | null;
+	is_member: boolean;
 	team_id?: string | null;
 	team_name?: string | null;
 	team_handle?: string | null;
