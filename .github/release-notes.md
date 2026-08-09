@@ -1,42 +1,49 @@
 <!-- SPDX-FileCopyrightText: 2026 Hari Srinivasan <harisrini21@gmail.com> -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Observal v1.11.0
-
-This release includes 13 change groups through `ad7a6cf`.
+This release includes 25 change groups through `fde9c88`.
 
 ## Features
 
-- add teamspace membership and handle reservation ([#1619](https://github.com/Observal/Observal/pull/1619))
-- add team publishing and team-private visibility ([#1640](https://github.com/Observal/Observal/pull/1640))
-- add success criteria fields to agent versions ([#1623](https://github.com/Observal/Observal/pull/1623))
-- add curated release pipeline ([#1642](https://github.com/Observal/Observal/pull/1642))
+- add Goose as a first-class harness ([#1667](https://github.com/Observal/Observal/pull/1667))
+- continuous fuzzing via OSS-Fuzz (Scorecard Fuzzing 0/10 → 10/10) ([#1668](https://github.com/Observal/Observal/pull/1668))
+- add the cross-product actionable inbox ([#1669](https://github.com/Observal/Observal/pull/1669))
+- meet OpenSSF security criteria ([#1674](https://github.com/Observal/Observal/pull/1674))
+- add shareable registry and team links ([#1673](https://github.com/Observal/Observal/pull/1673))
 
 ## Fixes
 
-- resolve release tags to SHAs to survive background tag pruning ([#1651](https://github.com/Observal/Observal/pull/1651))
+- attestation verify identity and resume-safe publish jobs ([#1655](https://github.com/Observal/Observal/pull/1655))
+- make pypi, npm, and helm jobs resume-safe ([#1656](https://github.com/Observal/Observal/pull/1656))
+- remove duplicate title and contributors section from release notes ([#1658](https://github.com/Observal/Observal/pull/1658))
+- only stamp alembic HEAD on a genuinely fresh database ([#1662](https://github.com/Observal/Observal/pull/1662))
+- pre-create ~/.observal before Docker makes it root-owned ([#1664](https://github.com/Observal/Observal/pull/1664))
+- red parallel test run, dropped log records, and stale AGENTS.md ([#1666](https://github.com/Observal/Observal/pull/1666))
+- preserve intentional downgrades ([#1672](https://github.com/Observal/Observal/pull/1672))
+- correct agent trace attribution ([#1671](https://github.com/Observal/Observal/pull/1671))
+- support headless setup ([#1676](https://github.com/Observal/Observal/pull/1676))
+- preserve debug symbols ([#1679](https://github.com/Observal/Observal/pull/1679))
+- require explicit session identity ([#1675](https://github.com/Observal/Observal/pull/1675))
+
+## Documentation
+
+- remove repetition between How It Works and feature sections ([#1657](https://github.com/Observal/Observal/pull/1657))
 
 ## Maintenance
 
-- remove legacy tenant scaffold ([#1641](https://github.com/Observal/Observal/pull/1641))
-- Feat/registry recommendations ([#1638](https://github.com/Observal/Observal/pull/1638))
-- add OpenSSF Scorecard ([#1643](https://github.com/Observal/Observal/pull/1643))
-- support linear releases and merge queue ([#1644](https://github.com/Observal/Observal/pull/1644))
-- fix root lockfile vulns and scope workflow token permissions ([#1645](https://github.com/Observal/Observal/pull/1645))
-- pin dependencies, attach signed release provenance, and docs fixes ([#1648](https://github.com/Observal/Observal/pull/1648))
-- drop redundant workflow_dispatch prerelease override flag ([#1650](https://github.com/Observal/Observal/pull/1650))
-- run pytest in parallel across cores with pytest-xdist ([#1652](https://github.com/Observal/Observal/pull/1652))
+- add E2E tests for CLI doctor commands ([#1018](https://github.com/Observal/Observal/pull/1018))
+- traces pipeline end-to-end tests (#946) ([#1174](https://github.com/Observal/Observal/pull/1174))
+- agents e2e tests (#936, #937, #938, #939, #941) ([#1169](https://github.com/Observal/Observal/pull/1169))
+- add Playwright tests for SSO and device auth (#929) ([#1177](https://github.com/Observal/Observal/pull/1177))
+- add unit tests for observal_cli/cmd_scan.py ([#1369](https://github.com/Observal/Observal/pull/1369))
+- cover cmd auth helpers ([#1647](https://github.com/Observal/Observal/pull/1647))
+- raise Python coverage with focused suites ([#1677](https://github.com/Observal/Observal/pull/1677))
+- target canonical Codecov project ([#1678](https://github.com/Observal/Observal/pull/1678))
 
-## Contributors
+## Verify this release
 
-- @Haz3-jolt
-- @Kaushik-Kumar-CEG
-- @Lokesh7025
-- Hari Srinivasan
-- Kaushik Kumar
-- Lokesh Selvam
-- Shaan Narendran
+Verify checksums, artifact provenance, and the signed release tag using the [release verification guide](https://github.com/Observal/Observal/blob/main/docs/security/release-verification.md).
 
 ## Full comparison
 
-[v1.10.7...v1.11.0](https://github.com/Observal/Observal/compare/v1.10.7...v1.11.0)
+[v1.11.0...v1.12.0](https://github.com/Observal/Observal/compare/v1.11.0...v1.12.0)
