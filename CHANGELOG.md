@@ -10,6 +10,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.12.1] - 2026-08-09
+
+### Fixes
+
+- validate current notes format ([#1681](https://github.com/Observal/Observal/pull/1681))
+- update gitsign verification ([#1682](https://github.com/Observal/Observal/pull/1682))
+- correct teamspace lifecycle access ([#1683](https://github.com/Observal/Observal/pull/1683))
+- harden diagnostics and CodeQL ([#1684](https://github.com/Observal/Observal/pull/1684))
+
 ## [1.12.0] - 2026-08-09
 
 ### Features
