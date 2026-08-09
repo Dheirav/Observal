@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: 2026 Hari Srinivasan <harisrini21@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 
-version = "1.11.0"
+version = "1.12.0"
 channel = "stable"
-previous_tag = "v1.10.7"
-cutoff = "ad7a6cf6809cb722a580f791f8650b5f3750a25e"
-created_at = "2026-08-02T19:28:41.731778+00:00"
-commit_count = 54
-included_prs = [1619, 1640, 1641, 1623, 1638, 1642, 1643, 1644, 1645, 1648, 1650, 1651, 1652]
+previous_tag = "v1.11.0"
+cutoff = "fde9c88947f5be55b589a6b6daaa1c63e7287b85"
+created_at = "2026-08-09T12:44:59.459224+00:00"
+commit_count = 127
+included_prs = [1655, 1656, 1657, 1658, 1662, 1664, 1666, 1667, 1668, 1672, 1671, 1669, 1674, 1676, 1673, 1018, 1174, 1169, 1177, 1369, 1647, 1677, 1678, 1679, 1675]
