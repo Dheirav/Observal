@@ -5,11 +5,47 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+from click import Group
+from typer.main import get_command
 from typer.testing import CliRunner
 
 from observal_cli.main import app
 
 runner = CliRunner()
+
+
+def _command_tree(command, path="observal"):
+    yield path, command
+    if isinstance(command, Group):
+        for name, child in command.commands.items():
+            yield from _command_tree(child, f"{path} {name}")
+
+
+def _help_examples(help_text: str) -> list[str]:
+    marker = "Examples:" if "Examples:" in help_text else "Example:"
+    if marker not in help_text:
+        return []
+    return [
+        line.strip()
+        for line in help_text.split(marker, 1)[1].splitlines()
+        if line.strip() == "observal" or line.strip().startswith("observal ")
+    ]
+
+
+def test_every_cli_help_screen_has_copyable_examples():
+    for path, command in _command_tree(get_command(app)):
+        examples = _help_examples(command.help or "")
+        assert 1 <= len(examples) <= 3, path
+        assert all(example == path or example.startswith(f"{path} ") for example in examples), path
+
+
+@pytest.mark.parametrize("component", ["mcp", "skill", "hook", "sandbox"])
+def test_submit_rejects_removed_example_flag(component):
+    result = runner.invoke(app, ["registry", component, "submit", "--example"])
+
+    assert result.exit_code == 2
+    assert "No such option" in result.output
 
 
 def test_skill_submit_flags_post_payload(tmp_path):

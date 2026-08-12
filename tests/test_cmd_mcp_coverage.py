@@ -899,12 +899,7 @@ def test_install_env_file_no_prompt_warns_and_ignores_lock_failure(tmp_path, mon
     assert "MISSING" in output
 
 
-def test_submit_example_and_edit_all_flags(monkeypatch):
-    example = runner.invoke(app, ["registry", "mcp", "submit", "--example"])
-    assert example.exit_code == 0
-    assert "filesystem" in example.output
-    assert "postgres" in example.output
-
+def test_edit_all_flags(monkeypatch):
     monkeypatch.setattr(mcp.client, "resolve_registry_reference", Mock(return_value="resolved"))
     monkeypatch.setattr(
         mcp.client,

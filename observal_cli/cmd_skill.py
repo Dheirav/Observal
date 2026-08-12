@@ -36,7 +36,15 @@ from observal_cli.render import (
 )
 from observal_cli.shared.utils import sanitize_name as _sanitize_name
 
-skill_app = typer.Typer(help="Skill registry commands")
+skill_app = typer.Typer(
+    help=(
+        "Skill registry commands\n\n"
+        "Examples:\n"
+        "  observal registry skill list\n"
+        "  observal registry skill show my-skill\n"
+        "  observal registry skill install my-skill --harness claude-code"
+    )
+)
 
 
 def register_skill(app: typer.Typer):
@@ -79,35 +87,6 @@ def _parse_frontmatter(content: str) -> dict:
 # ── Submit ────────────────────────────────────────────────────────────────────
 
 
-def _print_skill_examples() -> None:
-    output_json(
-        {
-            "registry_direct": {
-                "name": "summarize-changes",
-                "version": "1.0.0",
-                "description": "Summarize uncommitted changes and flag risks",
-                "owner": "your-team",
-                "task_type": "code-review",
-                "delivery_mode": "registry_direct",
-                "skill_md_content": "---\nname: summarize-changes\ndescription: Summarizes uncommitted changes and flags risky edits.\n---\n\n## Current changes\n\n!`git diff HEAD`\n\n## Instructions\n\nSummarize the diff and list risks.",
-                "supported_harnesses": ["claude-code", "kiro"],
-            },
-            "git_fetch": {
-                "name": "api-conventions",
-                "version": "1.0.0",
-                "description": "Apply API design conventions for this repo",
-                "owner": "your-team",
-                "task_type": "code-generation",
-                "delivery_mode": "git_fetch",
-                "git_url": "https://github.com/acme/agent-skills",
-                "git_ref": "main",
-                "skill_path": "skills/api-conventions",
-                "supported_harnesses": ["claude-code", "kiro"],
-            },
-        }
-    )
-
-
 @skill_app.command(name="submit")
 def skill_submit(
     from_file: str | None = typer.Option(None, "--from-file", "-f", help="Create from JSON file"),
@@ -126,7 +105,6 @@ def skill_submit(
     supported_harnesses: list[str] | None = typer.Option(None, "--harness", help="Supported harness (repeatable)"),
     draft: bool = typer.Option(False, "--draft", help="Save as draft instead of submitting for review"),
     submit_draft: str | None = typer.Option(None, "--submit", help="Submit a draft for review (skill ID)"),
-    example: bool = typer.Option(False, "--example", help="Print example skill payloads and exit"),
     team: str | None = typer.Option(None, "--team", help="Teamspace UUID or handle"),
     visibility: str | None = typer.Option(None, "--visibility", help="Visibility: public or team"),
 ):
@@ -148,15 +126,9 @@ def skill_submit(
 
     Examples:
         observal registry skill submit --git-url https://github.com/org/repo
-        observal registry skill submit --from-file skill.json
         observal registry skill submit --skill-md ./SKILL.md --git-url https://github.com/org/repo
         observal registry skill submit --skill-md ./SKILL.md --script ./run.sh --delivery-mode registry_direct
-        observal registry skill submit --draft
-        observal registry skill submit --submit abc123
     """
-    if example:
-        _print_skill_examples()
-        return
     rprint("[dim]Note: Only submit components you created (private) or are the point-of-contact for (external).[/dim]")
     if draft and submit_draft:
         rprint(
@@ -307,7 +279,6 @@ def skill_list(
         observal registry skill list
         observal registry skill list --task-type coding
         observal registry skill list --target-agent claude-code --output json
-        observal registry skill list --search "refactor"
     """
     params = {}
     if task_type:
@@ -522,7 +493,6 @@ def skill_install(
         observal registry skill install my-skill --harness claude-code
         observal registry skill install @sk --harness kiro --scope project
         observal registry skill install 2 --harness cursor --raw > config.json
-        observal registry skill install my-skill --harness opencode --no-write
     """
     resolved = client.resolve_registry_reference("skill", skill_id)
     listing = client.get(f"/api/v1/skills/{resolved}")
@@ -786,7 +756,6 @@ def skill_edit(
         observal registry skill edit my-skill --description "Better desc"
         observal registry skill edit abc123 --from-file updates.json
         observal registry skill edit @sk --git-url https://github.com/org/new-repo
-        observal registry skill edit 2 --version 2.0.0 --task-type debugging
     """
     resolved = client.resolve_registry_reference("skill", skill_id)
     if from_file:

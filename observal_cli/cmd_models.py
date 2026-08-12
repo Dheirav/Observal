@@ -14,7 +14,17 @@ from rich.table import Table
 from observal_cli import model_catalog
 from observal_cli.render import OutputMode, output_json
 
-models_app = typer.Typer(name="models", help="Inspect registry-backed harness model data.", no_args_is_help=False)
+models_app = typer.Typer(
+    name="models",
+    help=(
+        "Inspect registry-backed harness model data.\n\n"
+        "Examples:\n"
+        "  observal registry models\n"
+        "  observal registry models --harness claude-code\n"
+        "  observal registry models list --output json"
+    ),
+    no_args_is_help=False,
+)
 
 
 def _emit(harness: str | None, output: OutputMode) -> None:
@@ -54,4 +64,11 @@ def list_models(
     harness: str | None = typer.Option(None, "--harness", help="Filter to one harness."),
     output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
+    """List registry-backed harness models.
+
+    Examples:
+      observal registry models list
+      observal registry models list --harness pi
+      observal registry models list --output json
+    """
     _emit(harness, output)
