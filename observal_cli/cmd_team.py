@@ -10,7 +10,7 @@ from rich import print as rprint
 from rich.table import Table
 
 from observal_cli import client
-from observal_cli.render import output_json
+from observal_cli.render import OutputMode, output_json
 
 team_app = typer.Typer(name="team", help="Manage teamspaces: creation, membership, and listing.", no_args_is_help=True)
 members_app = typer.Typer(name="members", help="Manage team membership.", no_args_is_help=True)
@@ -26,7 +26,7 @@ def _resolve_team_id(team: str) -> str:
 
 @team_app.command("list")
 def list_teams(
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table | json"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table | json"),
     all_teams: bool = typer.Option(False, "--all", help="List all teamspaces, not only yours."),
 ):
     """List teamspaces you belong to (or all with --all).
@@ -65,7 +65,7 @@ def list_teams(
 @team_app.command("show")
 def show_team(
     team: str = typer.Argument(help="Team UUID or handle."),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table | json"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table | json"),
 ):
     """Show teamspace detail and members.
 
@@ -192,7 +192,7 @@ def leave_team(
 @members_app.command("list")
 def list_members(
     team: str = typer.Argument(help="Team UUID or handle."),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table | json"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table | json"),
 ):
     """List members of a teamspace.
 
@@ -237,7 +237,7 @@ def create_invite(
 @invite_app.command("list")
 def list_invites(
     team: str = typer.Argument(help="Private team UUID or handle."),
-    output: str = typer.Option("table", help="Output format: table | json"),
+    output: OutputMode = typer.Option("table", help="Output format: table | json"),
 ):
     """List invitation links for a private teamspace."""
     team_id = _resolve_team_id(team)
@@ -307,7 +307,7 @@ def request_join(
 def list_join_requests(
     team: str = typer.Argument(help="Team UUID or handle."),
     status: str = typer.Option(None, "--status", "-s", help="Filter: pending | approved | rejected | cancelled."),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table | json"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table | json"),
 ):
     """List a teamspace's join requests and decisions. Owner or admin only.
 

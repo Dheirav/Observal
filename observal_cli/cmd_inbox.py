@@ -20,7 +20,7 @@ from rich import print as rprint
 from rich.table import Table
 
 from observal_cli import client
-from observal_cli.render import console, esc, output_json, spinner
+from observal_cli.render import OutputMode, console, esc, output_json, spinner
 
 inbox_app = typer.Typer(
     name="inbox",
@@ -159,7 +159,7 @@ def inbox(
     unread: bool = typer.Option(False, "--unread", help="Only unread items"),
     page: int = typer.Option(1, "--page", "-p", min=1, help="Page number"),
     page_size: int = typer.Option(25, "--page-size", min=1, max=100, help="Items per page"),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table or json"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """Show your inbox.
 
@@ -183,7 +183,7 @@ def inbox_list(
     unread: bool = typer.Option(False, "--unread", help="Only unread items"),
     page: int = typer.Option(1, "--page", "-p", min=1, help="Page number"),
     page_size: int = typer.Option(25, "--page-size", min=1, max=100, help="Items per page"),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table or json"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """List your inbox items.
 
@@ -196,7 +196,7 @@ def inbox_list(
 
 @inbox_app.command(name="count")
 def inbox_count(
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table or json"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """Show unread and needs-action counts.
 
@@ -219,7 +219,7 @@ def inbox_count(
 @inbox_app.command(name="show")
 def inbox_show(
     item_id: str = typer.Argument(..., help="Inbox item ID"),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table or json"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """Show one item with its full action history.
 

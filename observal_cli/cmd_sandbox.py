@@ -18,11 +18,11 @@ from observal_cli import client, config
 from observal_cli.constants import VALID_HARNESSES, VALID_SANDBOX_NETWORK_POLICIES, VALID_SANDBOX_RUNTIME_TYPES
 from observal_cli.prompts import select_one, text_input
 from observal_cli.render import (
+    OutputMode,
     console,
     display_name,
     handle,
     kv_panel,
-    name_inline,
     output_json,
     relative_time,
     spinner,
@@ -242,7 +242,7 @@ def sandbox_list(
     search: str | None = typer.Option(None, "--search", "-s"),
     namespace: str | None = typer.Option(None, "--namespace", help="Filter by user or team namespace"),
     team: str | None = typer.Option(None, "--team", help="Only items owned by this teamspace"),
-    output: str = typer.Option("table", "--output", "-o", help="Output: table, json, plain"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """List approved sandboxes in the registry.
 
@@ -273,10 +273,6 @@ def sandbox_list(
     if output == "json":
         output_json(data)
         return
-    if output == "plain":
-        for item in data:
-            rprint(f"{item['id']}  {name_inline(item)}  v{item.get('version', '?')}")
-        return
     table = Table(title=f"Sandboxes ({len(data)})", show_lines=False, padding=(0, 1))
     table.add_column("#", style="dim", width=3)
     table.add_column("Name", style="bold cyan", no_wrap=True)
@@ -299,7 +295,7 @@ def sandbox_list(
 @sandbox_app.command(name="show")
 def sandbox_show(
     sandbox_id: str = typer.Argument(..., help="ID, name, row number, or @alias"),
-    output: str = typer.Option("table", "--output", "-o"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
     """Show detailed information about a sandbox.
 

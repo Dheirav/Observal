@@ -11,7 +11,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from observal_cli import client
-from observal_cli.render import console, esc, output_json, relative_time, spinner, status_badge
+from observal_cli.render import OutputMode, console, esc, output_json, relative_time, spinner, status_badge
 
 insights_app = typer.Typer(help="Agent insight reports")
 
@@ -82,7 +82,7 @@ def _resolve_report_for_show(target: str, report_ref: str | None) -> dict:
 @insights_app.command(name="list")
 def insights_list(
     agent_id: str = typer.Argument(..., help="Agent ID, name, or @alias"),
-    output: str = typer.Option("table", "--output", "-o"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
     """List insight reports for an agent.
 
@@ -129,7 +129,7 @@ def insights_list(
 def insights_show(
     target: str = typer.Argument(..., help="Agent name, agent ID, or @alias"),
     report_ref: str | None = typer.Argument(None, help="Report row number, report ID prefix, or 'latest'"),
-    output: str = typer.Option("table", "--output", "-o"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
     section: str | None = typer.Option(None, "--section", "-s", help="Show only a specific section"),
 ):
     """Show an insight report with pretty-printed narrative.
@@ -578,7 +578,7 @@ def insights_generate(
     period_days: int = typer.Option(14, "--period", "-p", help="Analysis period in days"),
     agent_version: str | None = typer.Option(None, "--version", "-v", help="Agent version to analyze"),
     compare_version: str | None = typer.Option(None, "--compare", help="Baseline agent version for A/B comparison"),
-    output: str = typer.Option("table", "--output", "-o"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
     wait: bool = typer.Option(False, "--wait", help="Poll until the report completes"),
 ):
     """Trigger generation of a new insight report.

@@ -30,7 +30,7 @@ from observal_cli.harness import (
     get_adapter,
     get_all_adapters,
 )
-from observal_cli.render import console, spinner
+from observal_cli.render import OutputMode, console, spinner
 
 # ── harness home directory paths (for status display) ────────────────
 
@@ -54,7 +54,7 @@ def register_scan(app: typer.Typer):
     @app.command(name="scan")
     def scan(
         harness: str | None = typer.Option(None, "--harness", "-i", help="Filter to a specific harness"),
-        output: str = typer.Option("table", "--output", "-o", help="Output format: table or json"),
+        output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
     ):
         """Show a read-only inventory of your local harness setup.
 

@@ -19,6 +19,7 @@ from rich.table import Table
 from observal_cli import client, config
 from observal_cli.prompts import password_input
 from observal_cli.render import (
+    OutputMode,
     console,
     kv_panel,
     output_json,
@@ -48,7 +49,7 @@ review_app = typer.Typer(help="Admin review commands")
 def review_list(
     type_filter: str = typer.Option(None, "--type", "-t", help="Filter by type (mcp, skill, hook, prompt, sandbox)"),
     tab: str = typer.Option(None, "--tab", help="Filter tab (agents, components)"),
-    output: str = typer.Option("table", "--output", "-o"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
     """List pending submissions awaiting admin review.
 
@@ -107,7 +108,7 @@ def review_list(
 @review_app.command(name="show")
 def review_show(
     review_id: str = typer.Argument(..., help="Name, row #, @alias, or UUID"),
-    output: str = typer.Option("table", "--output", "-o"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
     """Show review details for a component or agent.
 
@@ -305,7 +306,7 @@ def telemetry_test():
 def _metrics(
     item_id: str = typer.Argument(..., help="ID, name, row number, or @alias"),
     item_type: str = typer.Option("mcp", "--type", "-t", help="mcp or agent"),
-    output: str = typer.Option("table", "--output", "-o"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
     watch: bool = typer.Option(False, "--watch", "-w", help="Refresh every 5s"),
 ):
     """Show metrics for an MCP server or agent.
@@ -380,7 +381,7 @@ def _metrics_impl(item_id, item_type, output, watch):
 @ops_app.command(name="top")
 def _top(
     item_type: str = typer.Option("mcp", "--type", "-t", help="mcp or agent"),
-    output: str = typer.Option("table", "--output", "-o"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
     """Show top MCP servers or agents by usage.
 
@@ -544,7 +545,7 @@ def _resolve_listing_id(listing_id: str, listing_type: str) -> str:
 def _feedback(
     listing_id: str = typer.Argument(..., help="ID, name, row number, or @alias"),
     listing_type: str = typer.Option("mcp", "--type", "-t"),
-    output: str = typer.Option("table", "--output", "-o"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
     """Show feedback for an MCP server or agent.
 
@@ -592,7 +593,7 @@ admin_app = typer.Typer(help="Admin commands")
 
 
 @admin_app.command(name="settings")
-def admin_settings(output: str = typer.Option("table", "--output", "-o")):
+def admin_settings(output: OutputMode = typer.Option("table", "--output", "-o")):
     """List server settings.
 
     Displays all configured key-value server settings.
@@ -641,7 +642,7 @@ def admin_set(
 
 
 @admin_app.command(name="users")
-def admin_users(output: str = typer.Option("table", "--output", "-o")):
+def admin_users(output: OutputMode = typer.Option("table", "--output", "-o")):
     """List all users.
 
     Displays all registered users with their email, name, role, and ID.
@@ -679,7 +680,7 @@ def admin_create_user(
     username: str = typer.Option(None, "--username", "-u", help="Username (optional)"),
     role: str = typer.Option("reviewer", "--role", "-r", help="Role: admin, reviewer, or user"),
     password: str = typer.Option(None, "--password", "-p", help="Password (auto-generated if omitted)"),
-    output: str = typer.Option("table", "--output", "-o"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
     """Create a new user account. Requires admin privileges.
 
@@ -797,7 +798,7 @@ def admin_delete_user(
 
 
 @admin_app.command(name="diagnostics")
-def admin_diagnostics(output: str = typer.Option("table", "--output", "-o")):
+def admin_diagnostics(output: OutputMode = typer.Option("table", "--output", "-o")):
     """Show system diagnostics and health status.
 
     Reports overall system health, database connectivity, JWT key status,
@@ -850,7 +851,7 @@ def admin_diagnostics(output: str = typer.Option("table", "--output", "-o")):
 
 
 @admin_app.command(name="saml-config")
-def admin_saml_config(output: str = typer.Option("table", "--output", "-o")):
+def admin_saml_config(output: OutputMode = typer.Option("table", "--output", "-o")):
     """View current SAML SSO configuration.
 
     Displays the IdP entity ID, SSO/SLO URLs, SP entity ID, and whether
@@ -948,7 +949,7 @@ def admin_saml_config_delete(
 
 
 @admin_app.command(name="scim-tokens")
-def admin_scim_tokens(output: str = typer.Option("table", "--output", "-o")):
+def admin_scim_tokens(output: OutputMode = typer.Option("table", "--output", "-o")):
     """List SCIM provisioning tokens.
 
     Shows all SCIM bearer tokens with their prefix, description,
@@ -1044,7 +1045,7 @@ def admin_security_events(
     severity: str = typer.Option(None, "--severity", "-s", help="Filter: info, warning, critical"),
     actor: str = typer.Option(None, "--actor", "-a", help="Filter by actor email"),
     limit: int = typer.Option(50, "--limit", "-n"),
-    output: str = typer.Option("table", "--output", "-o"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
     """View security events log.
 
@@ -1114,7 +1115,7 @@ def admin_audit_log(
     actor: str = typer.Option(None, "--actor", help="Filter by actor email"),
     resource_type: str = typer.Option(None, "--resource-type", "-r", help="Filter by resource type"),
     limit: int = typer.Option(50, "--limit", "-n"),
-    output: str = typer.Option("table", "--output", "-o"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
     """Query the audit log.
 
@@ -1323,7 +1324,7 @@ def _traces(
     limit: int = typer.Option(20, "--limit", "-n"),
     turn: bool = typer.Option(False, "--turn", help="Unfold sessions to show turns (prompts)"),
     span: bool = typer.Option(False, "--span", help="Show full detail including tool calls"),
-    output: str = typer.Option("table", "--output", "-o"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
     """List recent traces (sessions).
 
@@ -1491,7 +1492,7 @@ def _format_tokens(input_tokens: int, output_tokens: int) -> str:
 @ops_app.command(name="spans")
 def _spans(
     trace_id: str = typer.Argument(..., help="Trace ID"),
-    output: str = typer.Option("table", "--output", "-o"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
     """List spans for a trace.
 

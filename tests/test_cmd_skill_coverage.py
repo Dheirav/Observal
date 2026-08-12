@@ -458,9 +458,9 @@ def test_list_filters_json_and_caches_results(monkeypatch):
     save.assert_called_once_with(data)
 
 
-def test_list_empty_plain_and_table_rendering(monkeypatch):
+def test_list_empty_rejects_plain_and_renders_table(monkeypatch):
     item = _skill_item()
-    monkeypatch.setattr(skill.client, "get", Mock(side_effect=[[], [item], [item]]))
+    monkeypatch.setattr(skill.client, "get", Mock(side_effect=[[], [item]]))
     save = Mock()
     monkeypatch.setattr(skill.config, "save_last_results", save)
 
@@ -468,17 +468,18 @@ def test_list_empty_plain_and_table_rendering(monkeypatch):
     plain = runner.invoke(app, ["registry", "skill", "list", "--output", "plain"])
     table = runner.invoke(app, ["registry", "skill", "list"])
 
-    assert empty.exit_code == plain.exit_code == table.exit_code == 0
+    assert empty.exit_code == table.exit_code == 0
+    assert plain.exit_code == 2
+    assert "is not one of 'table', 'json'" in plain.output
     assert "No skills found" in empty.output
-    assert "skill-123456789  review-skill" in plain.output
     assert "Skills (1)" in table.output
     assert "@alice" in table.output
-    assert save.call_count == 2
+    assert save.call_count == 1
 
 
-def test_my_empty_plain_json_and_table_outputs(monkeypatch):
+def test_my_empty_json_rejects_plain_and_renders_table(monkeypatch):
     item = _skill_item(status="pending")
-    monkeypatch.setattr(skill.client, "get", Mock(side_effect=[[], [item], [item], [item]]))
+    monkeypatch.setattr(skill.client, "get", Mock(side_effect=[[], [item], [item]]))
     save = Mock()
     monkeypatch.setattr(skill.config, "save_last_results", save)
 
@@ -487,13 +488,13 @@ def test_my_empty_plain_json_and_table_outputs(monkeypatch):
     as_json = runner.invoke(app, ["registry", "skill", "my", "--output", "json"])
     table = runner.invoke(app, ["registry", "skill", "my"])
 
-    assert empty.exit_code == plain.exit_code == as_json.exit_code == table.exit_code == 0
+    assert empty.exit_code == as_json.exit_code == table.exit_code == 0
+    assert plain.exit_code == 2
+    assert "is not one of 'table', 'json'" in plain.output
     assert "You have no skills" in empty.output
-    assert "review-skill" in plain.output
-    assert "pending" in plain.output
     assert json.loads(as_json.output) == [item]
     assert "My Skills (1)" in table.output
-    assert save.call_count == 3
+    assert save.call_count == 2
 
 
 def test_show_renders_metadata_and_json(monkeypatch):

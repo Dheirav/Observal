@@ -7,28 +7,23 @@
 
 from __future__ import annotations
 
-import json
-
 import typer
 from rich import print as rprint
 from rich.table import Table
 
 from observal_cli import model_catalog
+from observal_cli.render import OutputMode, output_json
 
 models_app = typer.Typer(name="models", help="Inspect registry-backed harness model data.", no_args_is_help=False)
 
 
-def _emit(harness: str | None, output: str) -> None:
+def _emit(harness: str | None, output: OutputMode) -> None:
     try:
         rows = model_catalog.fetch_catalog(harness=harness).get("models") or []
     except ValueError as exc:
         raise typer.BadParameter(str(exc), param_hint="harness") from exc
     if output == "json":
-        rprint(json.dumps(rows, indent=2))
-        return
-    if output == "plain":
-        for row in rows:
-            rprint(f"{row['harness']}\t{row['model_id']}\t{row.get('kind', 'exact')}\t{row.get('display_name', '')}")
+        output_json(rows)
         return
     table = Table(show_header=True, header_style="bold cyan")
     table.add_column("harness")
@@ -45,7 +40,7 @@ def _emit(harness: str | None, output: str) -> None:
 def models(
     ctx: typer.Context,
     harness: str | None = typer.Option(None, "--harness", help="Filter to one harness."),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table | json | plain"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     if ctx.invoked_subcommand is None:
         if harness == "--help":
@@ -57,6 +52,6 @@ def models(
 @models_app.command("list")
 def list_models(
     harness: str | None = typer.Option(None, "--harness", help="Filter to one harness."),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table | json | plain"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     _emit(harness, output)

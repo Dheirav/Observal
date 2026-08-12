@@ -19,11 +19,11 @@ from observal_cli import client, config
 from observal_cli.constants import VALID_PROMPT_CATEGORIES
 from observal_cli.prompts import select_one, text_input
 from observal_cli.render import (
+    OutputMode,
     console,
     display_name,
     handle,
     kv_panel,
-    name_inline,
     output_json,
     relative_time,
     spinner,
@@ -150,7 +150,7 @@ def prompt_list(
     search: str | None = typer.Option(None, "--search", "-s"),
     namespace: str | None = typer.Option(None, "--namespace", help="Filter by user or team namespace"),
     team: str | None = typer.Option(None, "--team", help="Only items owned by this teamspace"),
-    output: str = typer.Option("table", "--output", "-o", help="Output: table, json, plain"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """List approved prompts in the registry.
 
@@ -181,10 +181,6 @@ def prompt_list(
     if output == "json":
         output_json(data)
         return
-    if output == "plain":
-        for item in data:
-            rprint(f"{item['id']}  {name_inline(item)}  v{item.get('version', '?')}")
-        return
     table = Table(title=f"Prompts ({len(data)})", show_lines=False, padding=(0, 1))
     table.add_column("#", style="dim", width=3)
     table.add_column("Name", style="bold cyan", no_wrap=True)
@@ -206,7 +202,7 @@ def prompt_list(
 
 @prompt_app.command(name="my")
 def prompt_my(
-    output: str = typer.Option("table", "--output", "-o", help="Output: table, json, plain"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """List your own prompts across all statuses.
 
@@ -225,10 +221,6 @@ def prompt_my(
     config.save_last_results(data)
     if output == "json":
         output_json(data)
-        return
-    if output == "plain":
-        for item in data:
-            rprint(f"{name_inline(item)}  v{item.get('version', '?')}  {item.get('status', '')}")
         return
     table = Table(title=f"My Prompts ({len(data)})", show_lines=False, padding=(0, 1))
     table.add_column("#", style="dim", width=3)
@@ -252,7 +244,7 @@ def prompt_my(
 @prompt_app.command(name="show")
 def prompt_show(
     prompt_id: str = typer.Argument(..., help="ID, name, row number, or @alias"),
-    output: str = typer.Option("table", "--output", "-o"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
     """Show detailed information about a prompt.
 

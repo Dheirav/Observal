@@ -207,10 +207,10 @@ Treat the CLI as an agent-facing API while preserving a clear human default:
 
 - Add copy-pasteable examples to root and every command and subcommand help screen; remove duplicate example options.
 - Make errors identify the failed operation and resource, the precise safe cause, a remediation, and a request ID; expose internal detail only under debug mode.
-- Add universal explicit JSON and plain modes. Finite JSON uses natural payloads: paginated lists return `{items, total, page, page_size}` and detail and mutation commands return direct result objects. JSON errors go to stderr with categorized non-zero exit codes; streams use JSON Lines. Plain output is colorless, headerless, and tab-separated.
+- Keep human-readable tables as the default and add universal explicit JSON mode. Finite JSON uses natural payloads: paginated lists return `{items, total, page, page_size}` and detail and mutation commands return direct result objects. JSON errors go to stderr with categorized non-zero exit codes; streams use JSON Lines.
 - Keep formatting separate from prompting, dry-run behavior, file writes, and output destinations. Retire inconsistent format options through a compatibility window. Use external `jq` rather than embedding another query language.
 
-**Complete when:** every command has deterministic human, JSON, and plain behavior; empty and error paths remain parseable; JSON mode never emits prompts, spinners, banners, or Rich text; and the bundled skills use JSON explicitly.
+**Complete when:** every command has deterministic table and JSON behavior; empty and error paths remain parseable; JSON mode never emits prompts, spinners, banners, or Rich text; and the bundled skills use JSON explicitly.
 
 #### Agent-readiness audit for every CLI command, P1
 

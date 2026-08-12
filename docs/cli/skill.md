@@ -80,7 +80,7 @@ observal skill list --search "refactor"
 | `--task-type`, `-t` | Filter by task type |
 | `--target-agent` | Filter by target agent |
 | `--search`, `-s` | Filter by search term |
-| `--output`, `-o` | Output format: table, json, plain (default: table) |
+| `--output`, `-o` | Output format: table or json (default: table) |
 
 ---
 
@@ -96,7 +96,7 @@ observal skill my --output json
 
 | Option | Description |
 | --- | --- |
-| `--output`, `-o` | Output format: table, json, plain (default: table) |
+| `--output`, `-o` | Output format: table or json (default: table) |
 
 ---
 

@@ -25,6 +25,7 @@ from observal_cli.analyzer import analyze_local
 from observal_cli.constants import VALID_HARNESSES, VALID_MCP_CATEGORIES
 from observal_cli.prompts import fuzzy_select, select_one, text_input
 from observal_cli.render import (
+    OutputMode,
     console,
     display_name,
     handle,
@@ -963,11 +964,6 @@ def _list_impl(category, search, limit, sort, output, interactive=False, namespa
         output_json(data)
         return
 
-    if output == "plain":
-        for item in data:
-            rprint(f"{item['id']}  {name_inline(item)}  v{item.get('version', '?')}  [{item.get('category', '')}]")
-        return
-
     table = Table(title=f"MCP Servers ({len(data)})", show_lines=False, padding=(0, 1))
     table.add_column("#", style="dim", width=3)
     table.add_column("Name", style="bold cyan", no_wrap=True)
@@ -1330,7 +1326,7 @@ def list_mcps(
     interactive: bool = typer.Option(False, "--interactive", "-i", help="Interactive search mode"),
     limit: int = typer.Option(50, "--limit", "-n", help="Max results"),
     sort: str = typer.Option("name", "--sort", help="Sort by: name, category, version"),
-    output: str = typer.Option("table", "--output", "-o", help="Output: table, json, plain"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """List approved MCP servers in the registry.
 
@@ -1363,7 +1359,7 @@ def list_mcps(
 
 @mcp_app.command(name="my")
 def mcp_my(
-    output: str = typer.Option("table", "--output", "-o", help="Output: table, json, plain"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """List your own MCP servers across all statuses.
 
@@ -1377,9 +1373,6 @@ def mcp_my(
 
         # JSON output for scripting
         observal registry mcp my --output json
-
-        # Plain output (one per line)
-        observal registry mcp my --output plain
     """
     optic.trace("output={}", output)
     with spinner("Fetching your MCPs..."):
@@ -1390,10 +1383,6 @@ def mcp_my(
     config.save_last_results(data)
     if output == "json":
         output_json(data)
-        return
-    if output == "plain":
-        for item in data:
-            rprint(f"{name_inline(item)}  v{item.get('version', '?')}  {item.get('status', '')}")
         return
     table = Table(title=f"My MCPs ({len(data)})", show_lines=False, padding=(0, 1))
     table.add_column("#", style="dim", width=3)
@@ -1417,7 +1406,7 @@ def mcp_my(
 @mcp_app.command()
 def show(
     mcp_id: str = typer.Argument(..., help="ID, name, row number, or @alias"),
-    output: str = typer.Option("table", "--output", "-o", help="Output: table, json"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output: table, json"),
 ):
     """Show full details of an MCP server.
 

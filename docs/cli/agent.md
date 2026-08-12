@@ -101,7 +101,7 @@ observal agent list --full-id
 | `--page`, `-p` | Page number (1-indexed) |
 | `--id` | Include the agent ID column |
 | `--full-id` | Show full UUID (implies --id) |
-| `--output`, `-o` | Output format: table, json, plain |
+| `--output`, `-o` | Output format: table or json |
 
 ---
 
@@ -112,12 +112,11 @@ List your own agents across all statuses: pending, approved, rejected, and archi
 ```bash
 observal agent my
 observal agent my --output json
-observal agent my --output plain
 ```
 
 | Option | Description |
 | --- | --- |
-| `--output`, `-o` | Output format: table, json, plain |
+| `--output`, `-o` | Output format: table or json |
 
 ---
 

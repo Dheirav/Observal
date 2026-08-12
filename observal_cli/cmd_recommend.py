@@ -15,7 +15,7 @@ from rich import print as rprint
 from rich.table import Table
 
 from observal_cli import client
-from observal_cli.render import console, esc, output_json, spinner
+from observal_cli.render import OutputMode, console, esc, output_json, spinner
 
 recommend_app = typer.Typer(
     name="recommend",
@@ -122,7 +122,7 @@ def recommend(
     limit: int = typer.Option(8, "--limit", "-n", min=1, max=24, help="How many to return"),
     type_: str | None = typer.Option(None, "--type", "-t", help="Restrict to one component type"),
     refresh: bool = typer.Option(False, "--refresh", help="Recompute your profile instead of using the cache"),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table or json"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """Show components recommended for you.
 
@@ -143,7 +143,7 @@ def recommend_list(
     limit: int = typer.Option(8, "--limit", "-n", min=1, max=24, help="How many to return"),
     type_: str | None = typer.Option(None, "--type", "-t", help="Restrict to one component type"),
     refresh: bool = typer.Option(False, "--refresh", help="Recompute your profile instead of using the cache"),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table or json"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """Show components recommended for you.
 

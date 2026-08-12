@@ -30,7 +30,7 @@ from rich import print as rprint
 from observal_cli import client, config
 from observal_cli.branding import welcome_banner
 from observal_cli.prompts import password_input, quick_choice, text_input
-from observal_cli.render import console, kv_panel, spinner, status_badge
+from observal_cli.render import OutputMode, console, kv_panel, spinner, status_badge
 from observal_shared.namespace_rules import NAMESPACE_RULE_TEXT, is_valid_namespace
 
 # ── Auth subgroup ───────────────────────────────────────────
@@ -369,7 +369,7 @@ def logout():
 
 @auth_app.command()
 def whoami(
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table, json"),
 ):
     """Show current authenticated user.
 
@@ -811,7 +811,7 @@ def register_config(app: typer.Typer):
         """Set a CLI config value.
 
         Persists the given key/value pair to ~/.observal/config.json.
-        Common keys: output (table/json/plain), color (true/false),
+        Common keys: output (table/json), color (true/false),
         server_url.
 
         Examples:
@@ -820,6 +820,8 @@ def register_config(app: typer.Typer):
             observal config set server_url http://observal.internal:80
         """
         optic.trace("key={}, value={}", key, value)
+        if key == "output" and value not in ("table", "json"):
+            raise typer.BadParameter("output must be 'table' or 'json'", param_hint="value")
         if key == "server_url":
             from observal_cli.lockfile import migrate_lockfile_v1
 

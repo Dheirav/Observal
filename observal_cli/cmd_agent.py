@@ -26,6 +26,7 @@ from observal_cli import client, config
 from observal_cli.constants import AGENT_NAME_REGEX, VALID_HARNESSES
 from observal_cli.prompts import fuzzy_select, select_many, select_one, text_input
 from observal_cli.render import (
+    OutputMode,
     console,
     display_name,
     handle,
@@ -453,7 +454,7 @@ def agent_list(
     page: int = typer.Option(1, "--page", "-p", min=1, help="Page number (1-indexed)"),
     show_id: bool = typer.Option(False, "--id", help="Include the agent ID column"),
     full_id: bool = typer.Option(False, "--full-id", help="Show full UUID (implies --id)"),
-    output: str = typer.Option("table", "--output", "-o", help="Output: table, json, plain"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """List active agents (paginated).
 
@@ -495,6 +496,10 @@ def agent_list(
     total = int(headers.get("x-total-count", str(len(data))))
     total_pages = max(1, (total + limit - 1) // limit)
 
+    if output == "json":
+        output_json({"items": data, "total": total, "page": page, "page_size": limit})
+        return
+
     if not data:
         if total == 0:
             rprint("[dim]No agents found.[/dim]")
@@ -504,15 +509,6 @@ def agent_list(
 
     # Cache IDs for numeric shorthand
     config.save_last_results(data)
-
-    if output == "json":
-        output_json(data)
-        return
-
-    if output == "plain":
-        for item in data:
-            rprint(f"{name_inline(item)}  v{item.get('version', '?')}  {item.get('model_name', '')}")
-        return
 
     include_id = show_id or full_id
     table = Table(
@@ -547,7 +543,7 @@ def agent_list(
 
 @agent_app.command(name="my")
 def agent_my(
-    output: str = typer.Option("table", "--output", "-o", help="Output: table, json, plain"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """List your own agents (all statuses).
 
@@ -558,7 +554,6 @@ def agent_my(
     Examples:
       observal agent my
       observal agent my --output json
-      observal agent my --output plain
     """
     with spinner("Fetching your agents..."):
         data = client.get("/api/v1/agents/my")
@@ -568,10 +563,6 @@ def agent_my(
     config.save_last_results(data)
     if output == "json":
         output_json(data)
-        return
-    if output == "plain":
-        for item in data:
-            rprint(f"{name_inline(item)}  v{item.get('version', '?')}  {item.get('status', '')}")
         return
     table = Table(title=f"My Agents ({len(data)})", show_lines=False, padding=(0, 1))
     table.add_column("#", style="dim", width=3)
@@ -597,7 +588,7 @@ def agent_my(
 @agent_app.command(name="show")
 def agent_show(
     agent_id: str = typer.Argument(..., help="ID, name, row number, or @alias"),
-    output: str = typer.Option("table", "--output", "-o"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
     """Show full agent details.
 
@@ -1193,7 +1184,7 @@ def agent_release(
 @agent_app.command(name="versions")
 def agent_versions(
     name: str = typer.Argument(..., help="Agent name, ID, row number, or @alias"),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table or json"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """List all versions for an agent.
 

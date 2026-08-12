@@ -28,8 +28,8 @@ Required: `--name`, `--description`, `--prompt`. Optional: `--model`, `--harness
 Before choosing a model, query the registry for every selected harness and pick an available exact model:
 
 ```bash
-observal registry models --harness kiro --output plain
-observal registry models --harness claude-code --output plain
+observal registry models --harness kiro --output json
+observal registry models --harness claude-code --output json
 ```
 
 > **WARNING:** Without `--name` and `--prompt`, the command launches an interactive wizard. Always pass at least `--name`, `--description`, and `--prompt`.

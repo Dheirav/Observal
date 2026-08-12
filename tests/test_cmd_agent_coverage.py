@@ -461,19 +461,18 @@ def test_agent_list_table_filters_ids_and_pagination(monkeypatch, _isolated_boun
     assert "End of results" not in no_id.output
 
 
-def test_agent_list_json_plain_and_empty_pages(monkeypatch):
+def test_agent_list_json_rejects_plain_and_handles_empty_pages(monkeypatch):
     data = [_item()]
     get_with_headers = Mock(return_value=(data, {}))
     monkeypatch.setattr(agent.client, "get_with_headers", get_with_headers)
 
     as_json = _invoke("list", "--output", "json")
     assert as_json.exit_code == 0, as_json.output
-    assert json.loads(as_json.output)[0]["qualified_name"] == "alice/reviewer"
+    assert json.loads(as_json.output)["items"][0]["qualified_name"] == "alice/reviewer"
 
     plain = _invoke("list", "--output", "plain")
-    assert plain.exit_code == 0, plain.output
-    assert "reviewer" in plain.output
-    assert "@alice" in plain.output
+    assert plain.exit_code == 2
+    assert "is not one of 'table', 'json'" in plain.output
 
     get_with_headers.return_value = ([], {"x-total-count": "0"})
     empty = _invoke("list")
@@ -511,7 +510,7 @@ def test_agent_list_interactive_selection_and_cancellation(monkeypatch):
     show.assert_not_called()
 
 
-def test_agent_my_empty_json_plain_and_table(monkeypatch, _isolated_boundaries):
+def test_agent_my_empty_json_rejects_plain_and_renders_table(monkeypatch, _isolated_boundaries):
     get = Mock(return_value=[])
     monkeypatch.setattr(agent.client, "get", get)
 
@@ -526,14 +525,14 @@ def test_agent_my_empty_json_plain_and_table(monkeypatch, _isolated_boundaries):
     assert json.loads(as_json.output)[0]["status"] == "pending"
 
     plain = _invoke("my", "--output", "plain")
-    assert plain.exit_code == 0
-    assert "pending" in plain.output
+    assert plain.exit_code == 2
+    assert "is not one of 'table', 'json'" in plain.output
 
     table = _invoke("my")
     assert table.exit_code == 0, table.output
     assert "My Agents (1)" in table.output
     assert "pending" in table.output
-    assert _isolated_boundaries.save_last_results.call_count == 3
+    assert _isolated_boundaries.save_last_results.call_count == 2
 
 
 def test_agent_show_json_and_full_rendering(monkeypatch):
