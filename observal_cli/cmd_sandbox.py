@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json as _json
+from contextlib import nullcontext
 
 import typer
 from rich import print as rprint
@@ -264,10 +265,14 @@ def sandbox_list(
         params["namespace"] = namespace.lstrip("@").lower()
     if team:
         params["team_id"] = client.resolve_team_id(team)
-    with spinner("Fetching sandboxes..."):
+    fetch_ctx = nullcontext() if output == "json" else spinner("Fetching sandboxes...")
+    with fetch_ctx:
         data = client.get("/api/v1/sandboxes", params=params)
     if not data:
-        rprint("[dim]No sandboxes found.[/dim]")
+        if output == "json":
+            output_json([])
+        else:
+            rprint("[dim]No sandboxes found.[/dim]")
         return
     config.save_last_results(data)
     if output == "json":
@@ -309,7 +314,8 @@ def sandbox_show(
         observal registry sandbox show @dev-env --output json
     """
     resolved = client.resolve_registry_reference("sandbox", sandbox_id)
-    with spinner():
+    fetch_ctx = nullcontext() if output == "json" else spinner()
+    with fetch_ctx:
         item = client.get(f"/api/v1/sandboxes/{resolved}")
     if output == "json":
         output_json(item)

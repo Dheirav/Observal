@@ -13,6 +13,7 @@ import json as _json
 import re
 import subprocess
 import tempfile
+from contextlib import nullcontext
 from pathlib import Path
 
 import typer
@@ -321,10 +322,14 @@ def skill_list(
         params["namespace"] = namespace.lstrip("@").lower()
     if team:
         params["team_id"] = client.resolve_team_id(team)
-    with spinner("Fetching skills..."):
+    fetch_ctx = nullcontext() if output == "json" else spinner("Fetching skills...")
+    with fetch_ctx:
         data = client.get("/api/v1/skills", params=params)
     if not data:
-        rprint("[dim]No skills found.[/dim]")
+        if output == "json":
+            output_json([])
+        else:
+            rprint("[dim]No skills found.[/dim]")
         return
     config.save_last_results(data)
     if output == "json":
@@ -362,10 +367,14 @@ def skill_my(
         observal registry skill my
         observal registry skill my --output json
     """
-    with spinner("Fetching your skills..."):
+    fetch_ctx = nullcontext() if output == "json" else spinner("Fetching your skills...")
+    with fetch_ctx:
         data = client.get("/api/v1/skills/my")
     if not data:
-        rprint("[dim]You have no skills.[/dim]")
+        if output == "json":
+            output_json([])
+        else:
+            rprint("[dim]You have no skills.[/dim]")
         return
     config.save_last_results(data)
     if output == "json":
@@ -410,7 +419,8 @@ def skill_show(
         observal registry skill show @refactor-skill --output json
     """
     resolved = client.resolve_registry_reference("skill", skill_id)
-    with spinner():
+    fetch_ctx = nullcontext() if output == "json" else spinner()
+    with fetch_ctx:
         item = client.get(f"/api/v1/skills/{resolved}")
     if output == "json":
         output_json(item)

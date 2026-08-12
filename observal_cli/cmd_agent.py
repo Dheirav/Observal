@@ -496,6 +496,10 @@ def agent_list(
     total = int(headers.get("x-total-count", str(len(data))))
     total_pages = max(1, (total + limit - 1) // limit)
 
+    if data:
+        # Preserve numeric shorthand after both table and JSON listings.
+        config.save_last_results(data)
+
     if output == "json":
         output_json({"items": data, "total": total, "page": page, "page_size": limit})
         return
@@ -506,9 +510,6 @@ def agent_list(
         else:
             rprint(f"[yellow]Page {page} is empty. Total agents: {total} (last page: {total_pages})[/yellow]")
         return
-
-    # Cache IDs for numeric shorthand
-    config.save_last_results(data)
 
     include_id = show_id or full_id
     table = Table(

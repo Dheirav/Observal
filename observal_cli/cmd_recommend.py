@@ -10,6 +10,8 @@ profile, matching the server, which exposes no such route either.
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 import typer
 from rich import print as rprint
 from rich.table import Table
@@ -47,14 +49,15 @@ def _normalize_type(raw: str) -> str:
     return normalized
 
 
-def _emit(limit: int, type_: str | None, refresh: bool, output: str) -> None:
+def _emit(limit: int, type_: str | None, refresh: bool, output: OutputMode) -> None:
     params: dict[str, object] = {"limit": limit}
     if type_:
         params["type"] = _normalize_type(type_)
     if refresh:
         params["refresh"] = True
 
-    with spinner("Fetching recommendations..."):
+    fetch_ctx = nullcontext() if output == "json" else spinner("Fetching recommendations...")
+    with fetch_ctx:
         data = client.get("/api/v1/recommendations/me", params=params)
 
     if output == "json":
