@@ -106,8 +106,8 @@ agent_app = typer.Typer(
         "Agent registry commands\n\n"
         "Examples:\n"
         "  observal agent list\n"
-        "  observal agent show my-agent\n"
-        "  observal agent pull my-agent --harness claude-code"
+        "  observal agent show alice/my-agent\n"
+        "  observal agent pull alice/my-agent --harness claude-code"
     )
 )
 
@@ -747,8 +747,8 @@ def agent_archive(
     listings but can be restored with the unarchive command.
 
     Examples:
-      observal agent archive my-agent
-      observal agent archive my-agent --yes
+      observal agent archive alice/my-agent
+      observal agent archive alice/my-agent --yes
     """
     _archive_agent(agent_id, yes)
 
@@ -761,8 +761,8 @@ def agent_delete(
     """Archive an agent. Prefer the archive command.
 
     Examples:
-      observal agent delete my-agent
-      observal agent delete my-agent --yes
+      observal agent delete alice/my-agent
+      observal agent delete alice/my-agent --yes
     """
     _archive_agent(agent_id, yes)
 

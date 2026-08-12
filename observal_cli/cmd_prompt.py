@@ -36,8 +36,8 @@ prompt_app = typer.Typer(
         "Prompt registry commands\n\n"
         "Examples:\n"
         "  observal registry prompt list\n"
-        "  observal registry prompt show my-prompt\n"
-        "  observal registry prompt render my-prompt --var lang=python"
+        "  observal registry prompt show alice/my-prompt\n"
+        "  observal registry prompt render alice/my-prompt --var lang=python"
     )
 )
 

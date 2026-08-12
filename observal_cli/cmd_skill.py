@@ -41,8 +41,8 @@ skill_app = typer.Typer(
         "Skill registry commands\n\n"
         "Examples:\n"
         "  observal registry skill list\n"
-        "  observal registry skill show my-skill\n"
-        "  observal registry skill install my-skill --harness claude-code"
+        "  observal registry skill show alice/my-skill\n"
+        "  observal registry skill install alice/my-skill --harness claude-code"
     )
 )
 

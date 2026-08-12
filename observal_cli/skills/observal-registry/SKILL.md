@@ -140,7 +140,7 @@ observal registry sandbox submit --name lxc-runner --description 'LXC sandbox' -
 observal registry sandbox submit --from-file sandbox.json
 ```
 
-All types support `--draft` to save without review and `--submit NAME` to submit an existing draft. Use each command's help screen for copyable examples.
+All types support `--draft` to save without review and `--submit namespace/slug` (or a UUID) to submit an existing draft. Bare names are a legacy fallback and work only when unambiguous. Use each command's help screen for copyable examples.
 
 ---
 ## Procedure: Install Component

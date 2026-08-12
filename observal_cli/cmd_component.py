@@ -44,8 +44,8 @@ version_app = typer.Typer(
     help=(
         "Manage component versions\n\n"
         "Examples:\n"
-        "  observal registry version list mcp my-server\n"
-        "  observal registry version publish mcp my-server --version 2.0.0 --description 'Breaking change'"
+        "  observal registry version list mcp alice/my-server\n"
+        "  observal registry version publish mcp alice/my-server --version 2.0.0 --description 'Breaking change'"
     ),
     no_args_is_help=True,
 )
@@ -91,9 +91,9 @@ def version_publish(
 
     \b
     Examples:
-      observal registry version publish mcp my-server -v 2.0.0 -d "Breaking change"
-      observal registry version publish hook guard-hook -v 1.1.0 -d "Add timeout" --changelog "Fixed race"
-      observal registry version publish skill my-skill -v 1.0.0 -d "Initial" --harness claude-code
+      observal registry version publish mcp alice/my-server -v 2.0.0 -d "Breaking change"
+      observal registry version publish hook alice/guard-hook -v 1.1.0 -d "Add timeout" --changelog "Fixed race"
+      observal registry version publish skill alice/my-skill -v 1.0.0 -d "Initial" --harness claude-code
     """
     optic.trace("component_type={}", component_type)
     _require_valid_type(component_type)
@@ -167,8 +167,8 @@ def version_list(
 
     \b
     Examples:
-      observal registry version list mcp my-server
-      observal registry version list hook guard-hook --output json
+      observal registry version list mcp alice/my-server
+      observal registry version list hook alice/guard-hook --output json
       observal registry version list skill @my-skill-alias
     """
     _require_valid_type(component_type)

@@ -46,6 +46,6 @@ def add_transfer_owner_command(app: typer.Typer, entity_type: str) -> None:
     transfer_owner.__doc__ = f"""Transfer ownership to another username.
 
     Examples:
-      observal {command} transfer-owner my-component alice
+      observal {command} transfer-owner alice/my-component bob
     """
     app.command(name="transfer-owner")(transfer_owner)

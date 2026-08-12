@@ -136,7 +136,9 @@ migrate_app = typer.Typer(
         "Examples:\n"
         "  observal server migrate export --db-url postgresql://user:pass@host/observal\n"
         "  observal server migrate validate --archive backup.tar.gz\n"
-        "  observal server migrate export-telemetry --output-dir ./telemetry-export"
+        "  observal server migrate export-telemetry "
+        "--clickhouse-url clickhouse://default:@localhost:8123/observal "
+        "--manifest ./migration_manifest.json --output-dir ./telemetry-export"
     )
 )
 
