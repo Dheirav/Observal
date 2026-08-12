@@ -44,8 +44,8 @@ mcp_app = typer.Typer(
         "MCP server registry commands\n\n"
         "Examples:\n"
         "  observal registry mcp list\n"
-        "  observal registry mcp show my-server\n"
-        "  observal registry mcp install my-server --harness claude-code"
+        "  observal registry mcp show alice/my-server\n"
+        "  observal registry mcp install alice/my-server --harness claude-code"
     )
 )
 

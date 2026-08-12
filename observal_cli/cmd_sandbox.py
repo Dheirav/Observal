@@ -35,7 +35,7 @@ sandbox_app = typer.Typer(
         "Sandbox registry commands\n\n"
         "Examples:\n"
         "  observal registry sandbox list\n"
-        "  observal registry sandbox show my-sandbox\n"
+        "  observal registry sandbox show alice/my-sandbox\n"
         "  observal registry sandbox submit --from-file sandbox.json"
     )
 )

@@ -17,9 +17,9 @@ insights_app = typer.Typer(
     help=(
         "Agent insight reports\n\n"
         "Examples:\n"
-        "  observal ops insights list my-agent\n"
-        "  observal ops insights show my-agent latest\n"
-        "  observal ops insights generate my-agent"
+        "  observal ops insights list alice/my-agent\n"
+        "  observal ops insights show alice/my-agent latest\n"
+        "  observal ops insights generate alice/my-agent"
     )
 )
 
