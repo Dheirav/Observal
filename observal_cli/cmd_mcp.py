@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 
 import typer
@@ -934,14 +935,18 @@ def _list_impl(category, search, limit, sort, output, interactive=False, namespa
     if team:
         params["team_id"] = client.resolve_team_id(team)
 
-    with spinner("Fetching MCP servers..."):
+    fetch_ctx = nullcontext() if output == "json" else spinner("Fetching MCP servers...")
+    with fetch_ctx:
         data = client.get("/api/v1/mcps", params=params)
 
     if not data:
-        rprint("[dim]No MCP servers found.[/dim]")
+        if output == "json":
+            output_json([])
+        else:
+            rprint("[dim]No MCP servers found.[/dim]")
         return
 
-    if interactive:
+    if interactive and output != "json":
 
         def _display(item: dict) -> str:
             optic.trace("item={}", item)
@@ -988,7 +993,8 @@ def _list_impl(category, search, limit, sort, output, interactive=False, namespa
 def _show_impl(mcp_id, output):
     optic.trace("mcp_id={}, output={}", mcp_id, output)
     resolved = client.resolve_registry_reference("mcp", mcp_id)
-    with spinner():
+    fetch_ctx = nullcontext() if output == "json" else spinner()
+    with fetch_ctx:
         item = client.get(f"/api/v1/mcps/{resolved}")
 
     if output == "json":
@@ -1375,10 +1381,14 @@ def mcp_my(
         observal registry mcp my --output json
     """
     optic.trace("output={}", output)
-    with spinner("Fetching your MCPs..."):
+    fetch_ctx = nullcontext() if output == "json" else spinner("Fetching your MCPs...")
+    with fetch_ctx:
         data = client.get("/api/v1/mcps/my")
     if not data:
-        rprint("[dim]You have no MCP servers.[/dim]")
+        if output == "json":
+            output_json([])
+        else:
+            rprint("[dim]You have no MCP servers.[/dim]")
         return
     config.save_last_results(data)
     if output == "json":

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json as _json
+from contextlib import nullcontext
 
 import typer
 from rich import print as rprint
@@ -172,10 +173,14 @@ def prompt_list(
         params["namespace"] = namespace.lstrip("@").lower()
     if team:
         params["team_id"] = client.resolve_team_id(team)
-    with spinner("Fetching prompts..."):
+    fetch_ctx = nullcontext() if output == "json" else spinner("Fetching prompts...")
+    with fetch_ctx:
         data = client.get("/api/v1/prompts", params=params)
     if not data:
-        rprint("[dim]No prompts found.[/dim]")
+        if output == "json":
+            output_json([])
+        else:
+            rprint("[dim]No prompts found.[/dim]")
         return
     config.save_last_results(data)
     if output == "json":
@@ -213,10 +218,14 @@ def prompt_my(
         observal registry prompt my
         observal registry prompt my --output json
     """
-    with spinner("Fetching your prompts..."):
+    fetch_ctx = nullcontext() if output == "json" else spinner("Fetching your prompts...")
+    with fetch_ctx:
         data = client.get("/api/v1/prompts/my")
     if not data:
-        rprint("[dim]You have no prompts.[/dim]")
+        if output == "json":
+            output_json([])
+        else:
+            rprint("[dim]You have no prompts.[/dim]")
         return
     config.save_last_results(data)
     if output == "json":
@@ -258,7 +267,8 @@ def prompt_show(
         observal registry prompt show abc123 --output json
     """
     resolved = client.resolve_registry_reference("prompt", prompt_id)
-    with spinner():
+    fetch_ctx = nullcontext() if output == "json" else spinner()
+    with fetch_ctx:
         item = client.get(f"/api/v1/prompts/{resolved}")
     if output == "json":
         output_json(item)

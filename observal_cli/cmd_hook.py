@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json as _json
 import os
+from contextlib import nullcontext
 from pathlib import Path
 
 import typer
@@ -327,10 +328,14 @@ def hook_list(
         params["namespace"] = namespace.lstrip("@").lower()
     if team:
         params["team_id"] = client.resolve_team_id(team)
-    with spinner("Fetching hooks..."):
+    fetch_ctx = nullcontext() if output == "json" else spinner("Fetching hooks...")
+    with fetch_ctx:
         data = client.get("/api/v1/hooks", params=params)
     if not data:
-        rprint("[dim]No hooks found.[/dim]")
+        if output == "json":
+            output_json([])
+        else:
+            rprint("[dim]No hooks found.[/dim]")
         return
     config.save_last_results(data)
     if output == "json":
@@ -376,7 +381,8 @@ def hook_show(
       observal registry hook show abc123 -o json
     """
     resolved = client.resolve_registry_reference("hook", hook_id)
-    with spinner():
+    fetch_ctx = nullcontext() if output == "json" else spinner()
+    with fetch_ctx:
         item = client.get(f"/api/v1/hooks/{resolved}")
     if output == "json":
         output_json(item)

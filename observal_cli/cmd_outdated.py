@@ -5,12 +5,14 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 import typer
 from rich import print as rprint
 from rich.table import Table
 
 from observal_cli import client
-from observal_cli.render import OutputMode, console, spinner
+from observal_cli.render import OutputMode, console, output_json, spinner
 
 outdated_app = typer.Typer(
     name="outdated",
@@ -51,15 +53,20 @@ def register_outdated(app: typer.Typer):
 
         entries = get_all_entries(harness=harness)
         if not entries:
-            rprint("[dim]No installed agents or components found in lock file.[/dim]")
-            rprint("[dim]Run `observal agent pull` or `observal registry mcp install` first.[/dim]")
+            if output == "json":
+                output_json([])
+            else:
+                rprint("[dim]No installed agents or components found in lock file.[/dim]")
+                rprint("[dim]Run `observal agent pull` or `observal registry mcp install` first.[/dim]")
             raise typer.Exit(0)
 
-        rprint(f"\n[bold]Checking {len(entries)} installed item(s)...[/bold]\n")
+        if output != "json":
+            rprint(f"\n[bold]Checking {len(entries)} installed item(s)...[/bold]\n")
 
         results: list[dict] = []
 
-        with spinner("Fetching latest versions from registry..."):
+        fetch_ctx = nullcontext() if output == "json" else spinner("Fetching latest versions from registry...")
+        with fetch_ctx:
             for entry in entries:
                 entry_type = entry.get("entry_type", "")
                 component_type = entry.get("type", "")
@@ -121,9 +128,7 @@ def register_outdated(app: typer.Typer):
         reported = _report_to_inbox(outdated_items) if report else None
 
         if output == "json":
-            import json
-
-            print(json.dumps(results, indent=2))
+            output_json(results)
             return
 
         up_to_date = [r for r in results if not r["outdated"] and not r["error"]]

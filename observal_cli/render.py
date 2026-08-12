@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import json as _json
 from datetime import UTC, date, datetime
-from typing import Any, Literal
+from enum import Enum
+from typing import Any
 
 from rich import print as rprint
 from rich.console import Console
@@ -19,7 +20,12 @@ from rich.table import Table  # noqa: TC002 - used at runtime
 
 console = Console()
 
-OutputMode = Literal["table", "json"]
+
+class OutputMode(str, Enum):
+    """Supported CLI output formats."""
+
+    table = "table"
+    json = "json"
 
 
 def esc(value: Any) -> str:
