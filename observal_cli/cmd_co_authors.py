@@ -58,7 +58,7 @@ def make_co_authors_typer(entity_type: str) -> typer.Typer:
         "sandboxes": "registry sandbox",
     }[entity_type]
     prefix = f"observal {command} co-authors"
-    co_app = typer.Typer(help=f"Manage co-authors for {entity_type}\n\nExamples:\n  {prefix} list my-component")
+    co_app = typer.Typer(help=f"Manage co-authors for {entity_type}\n\nExamples:\n  {prefix} list alice/my-component")
 
     def list_cmd(
         entity_id: str = typer.Argument(help="Entity UUID or name"),
@@ -68,7 +68,7 @@ def make_co_authors_typer(entity_type: str) -> typer.Typer:
     list_cmd.__doc__ = f"""List co-authors.
 
     Examples:
-      {prefix} list my-component
+      {prefix} list alice/my-component
     """
     co_app.command(name="list")(list_cmd)
 
@@ -81,7 +81,7 @@ def make_co_authors_typer(entity_type: str) -> typer.Typer:
     add_cmd.__doc__ = f"""Add a co-author.
 
     Examples:
-      {prefix} add my-component alice@example.com
+      {prefix} add alice/my-component alice@example.com
     """
     co_app.command(name="add")(add_cmd)
 
@@ -94,7 +94,7 @@ def make_co_authors_typer(entity_type: str) -> typer.Typer:
     remove_cmd.__doc__ = f"""Remove a co-author.
 
     Examples:
-      {prefix} remove my-component 550e8400-e29b-41d4-a716-446655440000
+      {prefix} remove alice/my-component 550e8400-e29b-41d4-a716-446655440000
     """
     co_app.command(name="remove")(remove_cmd)
 

@@ -461,7 +461,7 @@ def bundle(
 
     archive_size = output.stat().st_size
     rprint(f"[green]✓[/green] Support bundle written to [bold]{output}[/bold] ({_human_size(archive_size)})")
-    rprint("[dim]  Review contents with: observal support inspect " + str(output) + "[/dim]")
+    rprint("[dim]  Review contents with: observal doctor support inspect " + str(output) + "[/dim]")
 
 
 # ── Inspect helpers ──────────────────────────────────────────────────

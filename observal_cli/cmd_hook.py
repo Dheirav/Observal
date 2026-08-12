@@ -41,8 +41,8 @@ hook_app = typer.Typer(
         "Hook registry commands\n\n"
         "Examples:\n"
         "  observal registry hook list\n"
-        "  observal registry hook show my-hook\n"
-        "  observal registry hook install my-hook --harness claude-code"
+        "  observal registry hook show alice/my-hook\n"
+        "  observal registry hook install alice/my-hook --harness claude-code"
     )
 )
 
