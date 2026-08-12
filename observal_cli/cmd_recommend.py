@@ -21,7 +21,13 @@ from observal_cli.render import OutputMode, console, esc, output_json, spinner
 
 recommend_app = typer.Typer(
     name="recommend",
-    help="Components recommended for you, based on your own sessions",
+    help=(
+        "Components recommended for you, based on your own sessions\n\n"
+        "Examples:\n"
+        "  observal registry recommend\n"
+        "  observal registry recommend --type mcp\n"
+        "  observal registry recommend list --output json"
+    ),
     no_args_is_help=False,
     invoke_without_command=True,
 )

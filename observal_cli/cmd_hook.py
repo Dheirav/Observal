@@ -36,7 +36,15 @@ from observal_cli.render import (
     status_badge,
 )
 
-hook_app = typer.Typer(help="Hook registry commands")
+hook_app = typer.Typer(
+    help=(
+        "Hook registry commands\n\n"
+        "Examples:\n"
+        "  observal registry hook list\n"
+        "  observal registry hook show my-hook\n"
+        "  observal registry hook install my-hook --harness claude-code"
+    )
+)
 
 
 def register_hook(app: typer.Typer):
@@ -50,38 +58,6 @@ HOOK_TIMEOUT_CAPS: dict[str, int] = {
     "sync": 10,
     "async": 60,
 }
-
-
-def _print_hook_examples() -> None:
-    output_json(
-        {
-            "command_hook": {
-                "name": "block-rm",
-                "version": "1.0.0",
-                "description": "Block destructive shell commands before they run",
-                "owner": "your-team",
-                "event": "PreToolUse",
-                "handler_type": "command",
-                "handler_config": {"command": "./hooks/block-rm.sh", "timeout": 10},
-                "execution_mode": "blocking",
-                "scope": "agent",
-                "source_url": "https://github.com/acme/agent-hooks",
-                "source_ref": "main",
-                "source_path": "hooks/security",
-            },
-            "http_hook": {
-                "name": "audit-bash",
-                "version": "1.0.0",
-                "description": "Send Bash tool calls to an audit endpoint",
-                "owner": "your-team",
-                "event": "PreToolUse",
-                "handler_type": "http",
-                "handler_config": {"url": "https://hooks.example.com/pre-tool-use", "timeout": 10},
-                "execution_mode": "sync",
-                "scope": "session",
-            },
-        }
-    )
 
 
 def _validate_timeout(execution_mode: str, handler_config: dict) -> None:
@@ -119,7 +95,6 @@ def hook_submit(
     execution_mode: str | None = typer.Option(None, "--execution-mode", help="async, sync, or blocking"),
     scope: str | None = typer.Option(None, "--scope", help="agent, session, or global"),
     supported_harnesses: list[str] | None = typer.Option(None, "--harness", help="Supported harness (repeatable)"),
-    example: bool = typer.Option(False, "--example", help="Print example hook payloads and exit"),
     team: str | None = typer.Option(None, "--team", help="Teamspace UUID or handle"),
     visibility: str | None = typer.Option(None, "--visibility", help="Visibility: public or team"),
 ):
@@ -128,14 +103,10 @@ def hook_submit(
     Only submit hooks you created or are the point-of-contact for.
 
     Examples:
-      observal registry hook submit
       observal registry hook submit --script ./protect-files.sh
       observal registry hook submit --source-url https://github.com/org/hooks --source-path hooks/guard/
       observal registry hook submit --from-file hook.json
     """
-    if example:
-        _print_hook_examples()
-        return
     rprint("[dim]Note: Only submit components you created (private) or are the point-of-contact for (external).[/dim]")
     if draft and submit_draft:
         rprint(
@@ -317,7 +288,6 @@ def hook_list(
       observal registry hook list
       observal registry hook list --event Stop
       observal registry hook list --search guard --output json
-      observal registry hook list -o json
     """
     params = {}
     if event:
@@ -376,8 +346,7 @@ def hook_show(
     \b
     Examples:
       observal registry hook show my-hook
-      observal registry hook show 1              # Row number from last list
-      observal registry hook show @guard         # Using alias
+      observal registry hook show @guard
       observal registry hook show abc123 -o json
     """
     resolved = client.resolve_registry_reference("hook", hook_id)
@@ -433,7 +402,6 @@ def hook_install(
       observal registry hook install my-hook --harness claude-code
       observal registry hook install @guard --harness kiro --dir ./project
       observal registry hook install my-hook --harness cursor --raw
-      observal registry hook install my-hook --harness claude-code --platform darwin
     """
     resolved = client.resolve_registry_reference("hook", hook_id)
     listing = client.get(f"/api/v1/hooks/{resolved}")
@@ -556,7 +524,6 @@ def hook_edit(
       observal registry hook edit my-hook --description "Updated guard hook"
       observal registry hook edit my-hook --event Stop --version 1.1.0
       observal registry hook edit @guard --from-file updated-hook.json
-      observal registry hook edit 1 --name new-name
     """
     resolved = client.resolve_registry_reference("hook", hook_id)
     if from_file:

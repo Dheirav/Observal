@@ -83,7 +83,6 @@ Dismissals are per-user and permanent until overwritten, so confirm before dismi
 Paste the MCP JSON config. Optionally include `--git` so Observal clones the repo and detects local OCI setup for Dockerfile, Containerfile, or compose `build:`.
 
 ```bash
-observal registry mcp submit --example
 observal registry mcp submit --name my-mcp --category developer-tools --yes
 observal registry mcp submit --git https://github.com/org/mcp-server --name my-mcp --category developer-tools --yes
 observal registry mcp submit --name internal-mcp --category developer-tools --team platform-tools --visibility team --yes
@@ -97,7 +96,6 @@ There are two delivery modes for skills:
 
 **Git-based** (server validates SKILL.md from repo, recommended for open-source):
 ```bash
-observal registry skill submit --example
 observal registry skill submit --skill-md ./SKILL.md --git-url https://github.com/org/repo --git-ref main --name my-skill --description 'What it does' --task-type general
 observal registry skill submit --skill-md ./SKILL.md --git-url https://github.com/org/repo --name internal-skill --description 'Team skill' --task-type general --team platform-tools --visibility team
 ```
@@ -117,7 +115,6 @@ On install, registry_direct skills write `<skill-name>/SKILL.md` and `<skill-nam
 ### Hook
 
 ```bash
-observal registry hook submit --example
 observal registry hook submit --name guard --description 'Guard prompts' --event UserPromptSubmit --handler-command './guard.sh' --execution-mode sync --timeout 10 --scope agent --harness claude-code
 observal registry hook submit --from-file hook.json --script ./pre-commit.sh
 ```
@@ -138,13 +135,12 @@ observal registry prompt submit --from-file prompt.json
 ### Sandbox
 
 ```bash
-observal registry sandbox submit --example
 observal registry sandbox submit --name node-runner --description 'Node sandbox' --runtime-type docker --image node:22-alpine --resource-limits '{"memory_mb":512}' --runtime-config '{}' --network-policy none --entrypoint node --harness claude-code
 observal registry sandbox submit --name lxc-runner --description 'LXC sandbox' --runtime-type lxc --image images:ubuntu/22.04 --runtime-config '{"profile":"default"}' --network-policy none --entrypoint 'sh' --harness kiro
 observal registry sandbox submit --from-file sandbox.json
 ```
 
-All types support `--example` to print ready-to-edit example payloads, `--draft` to save without review, and `--submit NAME` to submit an existing draft.
+All types support `--draft` to save without review and `--submit NAME` to submit an existing draft. Use each command's help screen for copyable examples.
 
 ---
 ## Procedure: Install Component

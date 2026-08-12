@@ -23,7 +23,16 @@ import typer
 from rich.console import Console
 from rich.text import Text
 
-logs_app = typer.Typer(name="logs", help="Live log viewer (open in a separate tab)")
+logs_app = typer.Typer(
+    name="logs",
+    help=(
+        "Live log viewer (open in a separate tab)\n\n"
+        "Examples:\n"
+        "  observal ops logs\n"
+        "  observal ops logs --remote\n"
+        "  observal ops logs --level WARNING --no-follow"
+    ),
+)
 
 LOG_PATH = Path.home() / ".observal" / "logs" / "dev.log"
 

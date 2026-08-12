@@ -21,19 +21,19 @@ _ENTITY_LABELS = {
 
 
 def add_transfer_owner_command(app: typer.Typer, entity_type: str) -> None:
-    @app.command(name="transfer-owner")
+    label = _ENTITY_LABELS[entity_type]
+    command = "agent" if entity_type == "agents" else f"registry {label}"
+
     def transfer_owner(
         entity_id: str = typer.Argument(help="Entity UUID or name"),
         username: str = typer.Argument(help="New owner's username"),
         yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
     ):
-        """Transfer ownership to another username."""
         target = username.strip().lstrip("@")
         if not target:
             rprint("[red]Error:[/red] username is required")
             raise typer.Exit(1)
 
-        label = _ENTITY_LABELS.get(entity_type, entity_type)
         if not yes and not typer.confirm(
             f"Transfer {label} '{entity_id}' to @{target}? You will no longer be the owner."
         ):
@@ -42,3 +42,10 @@ def add_transfer_owner_command(app: typer.Typer, entity_type: str) -> None:
         resolved = client.resolve_registry_reference(entity_type, entity_id)
         resp = client.post(f"/api/v1/{entity_type}/{resolved}/transfer-ownership", json_data={"username": target})
         rprint(f"[green]Ownership transferred to:[/green] @{resp.get('owner', target)}")
+
+    transfer_owner.__doc__ = f"""Transfer ownership to another username.
+
+    Examples:
+      observal {command} transfer-owner my-component alice
+    """
+    app.command(name="transfer-owner")(transfer_owner)

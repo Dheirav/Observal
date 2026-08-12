@@ -130,7 +130,15 @@ def _warn_clickhouse_cleartext(url: str) -> None:
 
 # ── Typer app ────────────────────────────────────────────
 
-migrate_app = typer.Typer(help="PostgreSQL shallow-copy migration tools")
+migrate_app = typer.Typer(
+    help=(
+        "PostgreSQL shallow-copy migration tools\n\n"
+        "Examples:\n"
+        "  observal server migrate export --db-url postgresql://user:pass@host/observal\n"
+        "  observal server migrate validate --archive backup.tar.gz\n"
+        "  observal server migrate export-telemetry --output-dir ./telemetry-export"
+    )
+)
 
 
 @migrate_app.callback()
@@ -156,8 +164,8 @@ def export_cmd(
     Alembic migration version for compatibility verification on import.
 
     Examples:
-        observal migrate export --db-url postgresql://user:pass@host/observal
-        observal migrate export --db-url $DATABASE_URL -o backup.tar.gz
+        observal server migrate export --db-url postgresql://user:pass@host/observal
+        observal server migrate export --db-url $DATABASE_URL -o backup.tar.gz
     """
     _require_admin()
 
@@ -221,8 +229,8 @@ def import_cmd(
     Requires super_admin role.
 
     Examples:
-        observal migrate import --db-url postgresql://user:pass@host/observal --archive backup.tar.gz
-        observal migrate import --db-url $DATABASE_URL -a backup.tar.gz
+        observal server migrate import --db-url postgresql://user:pass@host/observal --archive backup.tar.gz
+        observal server migrate import --db-url $DATABASE_URL -a backup.tar.gz
     """
     _require_admin()
 
@@ -278,8 +286,8 @@ def validate_cmd(
     database to detect drift or partial imports. Requires super_admin role.
 
     Examples:
-        observal migrate validate --archive backup.tar.gz
-        observal migrate validate -a backup.tar.gz --db-url $DATABASE_URL
+        observal server migrate validate --archive backup.tar.gz
+        observal server migrate validate -a backup.tar.gz --db-url $DATABASE_URL
     """
     _require_admin()
 
@@ -345,13 +353,13 @@ def export_telemetry_cmd(
 
     Phase 2 of migration: exports session, audit, security, and webhook telemetry
     tables as monthly Parquet partitions. Requires a completed Phase 1 export
-    (the migration_manifest.json produced by 'observal migrate export').
+    (the migration_manifest.json produced by 'observal server migrate export').
 
     Uses a time cutoff recorded at export start for consistency. The output
     directory must be empty or non-existent. Requires super_admin role.
 
     Examples:
-        observal migrate export-telemetry \\
+        observal server migrate export-telemetry \\
             --clickhouse-url clickhouse://default:@localhost:8123/observal \\
             --manifest ./observal-export-20260101-120000.manifest.json \\
             --output-dir ./telemetry-export
@@ -399,7 +407,7 @@ def import_telemetry_cmd(
     can continue where they left off. Requires super_admin role.
 
     Examples:
-        observal migrate import-telemetry \\
+        observal server migrate import-telemetry \\
             --clickhouse-url clickhouse://default:@localhost:8123/observal \\
             --input-dir ./telemetry-export
     """
@@ -456,8 +464,8 @@ def validate_telemetry_cmd(
     PostgreSQL to detect orphaned telemetry records. Requires super_admin role.
 
     Examples:
-        observal migrate validate-telemetry --input-dir ./telemetry-export
-        observal migrate validate-telemetry \\
+        observal server migrate validate-telemetry --input-dir ./telemetry-export
+        observal server migrate validate-telemetry \\
             --input-dir ./telemetry-export \\
             --clickhouse-url $CLICKHOUSE_URL \\
             --target-db-url $DATABASE_URL

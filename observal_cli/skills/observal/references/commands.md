@@ -156,7 +156,7 @@ Every command available in the installed CLI. This block is generated from the T
   - `observal registry mcp transfer-owner`: Transfer ownership to another username.
   - `observal registry mcp unarchive`: Restore an archived component.
 - `observal registry models`: Inspect registry-backed harness model data.
-  - `observal registry models list`
+  - `observal registry models list`: List registry-backed harness models.
 - `observal registry prompt`: Prompt registry commands
   - `observal registry prompt co-authors`: Manage co-authors for prompts
     - `observal registry prompt co-authors add`: Add a co-author.

@@ -31,7 +31,15 @@ from observal_cli.render import (
     status_badge,
 )
 
-prompt_app = typer.Typer(help="Prompt registry commands")
+prompt_app = typer.Typer(
+    help=(
+        "Prompt registry commands\n\n"
+        "Examples:\n"
+        "  observal registry prompt list\n"
+        "  observal registry prompt show my-prompt\n"
+        "  observal registry prompt render my-prompt --var lang=python"
+    )
+)
 
 
 def register_prompt(app: typer.Typer):
@@ -62,7 +70,6 @@ def prompt_submit(
     Only submit prompts you created or are the point-of-contact for.
 
     Examples:
-        observal registry prompt submit
         observal registry prompt submit --from-file prompt.json
         observal registry prompt submit --draft
         observal registry prompt submit --submit abc123
@@ -262,7 +269,6 @@ def prompt_show(
 
     Examples:
         observal registry prompt show my-prompt
-        observal registry prompt show 1
         observal registry prompt show @refactor-prompt
         observal registry prompt show abc123 --output json
     """
@@ -336,7 +342,6 @@ def prompt_edit(
         observal registry prompt edit my-prompt --description "Updated desc"
         observal registry prompt edit abc123 --from-file updates.json
         observal registry prompt edit @tpl --template "New template: {{var}}"
-        observal registry prompt edit 2 --version 2.0.0 --category debugging
     """
     resolved = client.resolve_registry_reference("prompt", prompt_id)
     if from_file:

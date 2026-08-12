@@ -229,7 +229,7 @@ def _uninstall_cli() -> bool:
 
 
 def register_uninstall(app: typer.Typer):
-    """Register the root-level `observal uninstall` command."""
+    """Register the `observal self uninstall` command."""
 
     @app.command("uninstall")
     def uninstall(
@@ -249,9 +249,9 @@ def register_uninstall(app: typer.Typer):
         deferred to a background PowerShell process after the CLI exits.
 
         Examples:
-            observal uninstall
-            observal uninstall --keep-config --keep-cli
-            observal uninstall --repo-dir ~/code/Observal --keep-repo
+            observal self uninstall
+            observal self uninstall --keep-config --keep-cli
+            observal self uninstall --repo-dir ~/code/Observal --keep-repo
         """
         optic.trace("repo_dir={}", repo_dir)
         repo_root = _find_repo_root(repo_dir)
