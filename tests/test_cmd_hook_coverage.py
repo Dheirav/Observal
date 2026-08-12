@@ -449,9 +449,9 @@ def test_submit_interactive_handler_paths(tmp_path, handler_type, script_name, e
         assert "Command auto-set" in result.output
 
 
-def test_list_filters_json_empty_plain_and_table(monkeypatch):
+def test_list_filters_json_empty_rejects_plain_and_renders_table(monkeypatch):
     item = _hook_item()
-    get = Mock(side_effect=[[item], [], [item], [item]])
+    get = Mock(side_effect=[[item], [], [item]])
     save = Mock()
     resolve_team = Mock(return_value="team-1")
     monkeypatch.setattr(hook.client, "get", get)
@@ -480,11 +480,11 @@ def test_list_filters_json_empty_plain_and_table(monkeypatch):
     plain = runner.invoke(app, ["registry", "hook", "list", "--output", "plain"])
     table = runner.invoke(app, ["registry", "hook", "list"])
 
-    assert all(result.exit_code == 0 for result in (as_json, empty, plain, table))
+    assert all(result.exit_code == 0 for result in (as_json, empty, table))
+    assert plain.exit_code == 2
+    assert "is not one of 'table', 'json'" in plain.output
     assert json.loads(as_json.output) == [item]
     assert "No hooks found" in empty.output
-    assert "hook-123456789  guard" in plain.output
-    assert "PreToolUse" in plain.output
     assert "Hooks (1)" in table.output
     assert "@alice" in table.output
     assert get.call_args_list[0] == call(
@@ -497,7 +497,7 @@ def test_list_filters_json_empty_plain_and_table(monkeypatch):
         },
     )
     resolve_team.assert_called_once_with("platform")
-    assert save.call_count == 3
+    assert save.call_count == 2
 
 
 def test_list_surfaces_http_failure(monkeypatch):

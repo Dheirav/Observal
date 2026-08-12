@@ -138,7 +138,7 @@ observal registry mcp submit --submit my-server
 List approved MCP servers in the registry.
 
 ```bash
-observal registry mcp list [--search TERM] [--category CAT] [--limit N] [--sort name|category|version] [--output table|json|plain] [--interactive]
+observal registry mcp list [--search TERM] [--category CAT] [--limit N] [--sort name|category|version] [--output table|json] [--interactive]
 ```
 
 | Option | Short | Description |
@@ -147,7 +147,7 @@ observal registry mcp list [--search TERM] [--category CAT] [--limit N] [--sort 
 | `--category` | `-c` | Filter by category |
 | `--limit` | `-n` | Max results (default: 50) |
 | `--sort` | | Sort by: `name`, `category`, `version` |
-| `--output` | `-o` | Output format: `table`, `json`, `plain` |
+| `--output` | `-o` | Output format: `table`, `json` |
 | `--interactive` | `-i` | Open a fuzzy-search picker |
 
 ```bash
@@ -164,7 +164,7 @@ observal registry mcp list --sort category --limit 10
 List your own MCP servers across all statuses (draft, pending, approved, rejected).
 
 ```bash
-observal registry mcp my [--output table|json|plain]
+observal registry mcp my [--output table|json]
 ```
 
 ```bash
@@ -297,7 +297,7 @@ observal registry skill submit --submit abc123
 List approved skills in the registry.
 
 ```bash
-observal registry skill list [--task-type TYPE] [--target-agent AGENT] [--search TERM] [--output table|json|plain]
+observal registry skill list [--task-type TYPE] [--target-agent AGENT] [--search TERM] [--output table|json]
 ```
 
 | Option | Short | Description |
@@ -305,7 +305,7 @@ observal registry skill list [--task-type TYPE] [--target-agent AGENT] [--search
 | `--task-type` | `-t` | Filter by task type |
 | `--target-agent` | | Filter by target agent |
 | `--search` | `-s` | Search by name or description |
-| `--output` | `-o` | Output format: `table`, `json`, `plain` |
+| `--output` | `-o` | Output format: `table`, `json` |
 
 ```bash
 observal registry skill list
@@ -321,7 +321,7 @@ observal registry skill list --search "refactor"
 List your own skills across all statuses (draft, pending, approved, rejected).
 
 ```bash
-observal registry skill my [--output table|json|plain]
+observal registry skill my [--output table|json]
 ```
 
 ```bash
@@ -437,14 +437,14 @@ observal registry hook submit --submit abc123
 List approved hooks from the registry.
 
 ```bash
-observal registry hook list [--event EVENT] [--search TERM] [--output table|json|plain]
+observal registry hook list [--event EVENT] [--search TERM] [--output table|json]
 ```
 
 | Option | Short | Description |
 | --- | --- | --- |
 | `--event` | `-e` | Filter by event type |
 | `--search` | `-s` | Search by name or description |
-| `--output` | `-o` | Output format: `table`, `json`, `plain` |
+| `--output` | `-o` | Output format: `table`, `json` |
 
 ```bash
 observal registry hook list
@@ -550,14 +550,14 @@ observal registry prompt submit --submit abc123
 List approved prompts in the registry.
 
 ```bash
-observal registry prompt list [--category CAT] [--search TERM] [--output table|json|plain]
+observal registry prompt list [--category CAT] [--search TERM] [--output table|json]
 ```
 
 | Option | Short | Description |
 | --- | --- | --- |
 | `--category` | `-c` | Filter by category |
 | `--search` | `-s` | Search by name or description |
-| `--output` | `-o` | Output format: `table`, `json`, `plain` |
+| `--output` | `-o` | Output format: `table`, `json` |
 
 ```bash
 observal registry prompt list
@@ -572,7 +572,7 @@ observal registry prompt list --search "refactor" --output json
 List your own prompts across all statuses (draft, pending, approved, rejected).
 
 ```bash
-observal registry prompt my [--output table|json|plain]
+observal registry prompt my [--output table|json]
 ```
 
 ```bash
@@ -691,14 +691,14 @@ observal registry sandbox submit --submit abc123
 List approved sandboxes in the registry.
 
 ```bash
-observal registry sandbox list [--runtime TYPE] [--search TERM] [--output table|json|plain]
+observal registry sandbox list [--runtime TYPE] [--search TERM] [--output table|json]
 ```
 
 | Option | Short | Description |
 | --- | --- | --- |
 | `--runtime` | `-r` | Filter by runtime type |
 | `--search` | `-s` | Search by name or description |
-| `--output` | `-o` | Output format: `table`, `json`, `plain` |
+| `--output` | `-o` | Output format: `table`, `json` |
 
 ```bash
 observal registry sandbox list

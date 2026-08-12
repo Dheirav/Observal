@@ -638,7 +638,7 @@ def test_list_json_filters_sorts_limits_and_caches(monkeypatch):
     save.assert_called_once_with([data[1]])
 
 
-def test_list_plain_table_empty_and_interactive(monkeypatch, capsys):
+def test_list_table_empty_and_interactive(monkeypatch, capsys):
     save = Mock()
     monkeypatch.setattr(mcp.config, "save_last_results", save)
     item = _registry_item()
@@ -648,7 +648,7 @@ def test_list_plain_table_empty_and_interactive(monkeypatch, capsys):
     assert "No MCP servers found" in capsys.readouterr().out
 
     monkeypatch.setattr(mcp.client, "get", Mock(return_value=[item]))
-    mcp._list_impl(None, None, 50, "version", "plain")
+    mcp._list_impl(None, None, 50, "version", "table")
     assert "mcp-1" in capsys.readouterr().out
 
     mcp._list_impl(None, None, 50, "unknown", "table")
@@ -673,9 +673,9 @@ def test_list_plain_table_empty_and_interactive(monkeypatch, capsys):
     show.assert_not_called()
 
 
-def test_my_mcp_outputs_and_empty_state(monkeypatch):
+def test_my_mcp_outputs_reject_plain_and_empty_state(monkeypatch):
     item = _registry_item()
-    get = Mock(side_effect=[[], [item], [item], [item]])
+    get = Mock(side_effect=[[], [item], [item]])
     monkeypatch.setattr(mcp.client, "get", get)
     save = Mock()
     monkeypatch.setattr(mcp.config, "save_last_results", save)
@@ -685,12 +685,13 @@ def test_my_mcp_outputs_and_empty_state(monkeypatch):
     as_json = runner.invoke(app, ["registry", "mcp", "my", "--output", "json"])
     table = runner.invoke(app, ["registry", "mcp", "my"])
 
-    assert empty.exit_code == plain.exit_code == as_json.exit_code == table.exit_code == 0
+    assert empty.exit_code == as_json.exit_code == table.exit_code == 0
+    assert plain.exit_code == 2
+    assert "is not one of 'table', 'json'" in plain.output
     assert "You have no MCP servers" in empty.output
-    assert "search-mcp" in plain.output
     assert json.loads(as_json.output)[0]["id"] == "mcp-1"
     assert "My MCPs" in table.output
-    assert save.call_count == 3
+    assert save.call_count == 2
 
 
 def test_show_renders_validation_and_json(monkeypatch):

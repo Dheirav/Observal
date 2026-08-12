@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json as _json
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from rich import print as rprint
 from rich.console import Console
@@ -18,6 +18,8 @@ from rich.panel import Panel
 from rich.table import Table  # noqa: TC002 - used at runtime
 
 console = Console()
+
+OutputMode = Literal["table", "json"]
 
 
 def esc(value: Any) -> str:
@@ -112,7 +114,7 @@ def handle(item: dict) -> str:
 
 
 def name_inline(item: dict) -> str:
-    """``name @namespace`` for plain output, which has no columns to separate them."""
+    """Render ``name @namespace`` when columns are unavailable."""
     name, namespace = registry_identity(item)
     return f"{name} [dim]@{namespace}[/dim]" if namespace else name
 
@@ -127,17 +129,12 @@ def star_rating(n: int, max_stars: int = 5) -> str:
 # ── Output format dispatch ───────────────────────────────
 
 
-def output_json(data: Any):
-    console.print_json(_json.dumps(data, default=str))
+def output_json(data: Any) -> None:
+    print(_json.dumps(data, default=str, ensure_ascii=False, indent=2))
 
 
-def output_table(table: Table):
+def output_table(table: Table) -> None:
     console.print(table)
-
-
-def output_plain(lines: list[str]):
-    for line in lines:
-        rprint(line)
 
 
 # ── Detail panels ────────────────────────────────────────

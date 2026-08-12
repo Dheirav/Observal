@@ -9,8 +9,8 @@ Display registry-backed harness model data.
 ## Synopsis
 
 ```bash
-observal registry models [--harness <name>] [--output table|json|plain]
-observal registry models list [--harness <name>] [--output table|json|plain]
+observal registry models [--harness <name>] [--output table|json]
+observal registry models list [--harness <name>] [--output table|json]
 ```
 
 ## Options
@@ -18,7 +18,7 @@ observal registry models list [--harness <name>] [--output table|json|plain]
 | Option | Description |
 | --- | --- |
 | `--harness <name>` | Filter to one harness, such as `claude-code`, `cursor`, or `pi`. |
-| `--output, -o <format>` | Output format: `table` (default), `json`, or `plain`. |
+| `--output, -o <format>` | Output format: `table` (default) or `json`. |
 
 ## Data source
 
@@ -28,6 +28,6 @@ The command reads the harness model JSON files packaged with Observal under `obs
 
 ```bash
 observal registry models
-observal registry models --harness pi --output plain
+observal registry models --harness pi --output json
 observal registry models list --harness claude-code --output json
 ```

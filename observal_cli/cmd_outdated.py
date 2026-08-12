@@ -10,7 +10,7 @@ from rich import print as rprint
 from rich.table import Table
 
 from observal_cli import client
-from observal_cli.render import console, spinner
+from observal_cli.render import OutputMode, console, spinner
 
 outdated_app = typer.Typer(
     name="outdated",
@@ -24,7 +24,7 @@ def register_outdated(app: typer.Typer):
     @app.command("outdated")
     def outdated(
         harness: str | None = typer.Option(None, "--harness", "-i", help="Filter by harness"),
-        output: str = typer.Option("table", "--output", "-o", help="Output format: table or json"),
+        output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
         report: bool = typer.Option(
             True,
             "--report/--no-report",

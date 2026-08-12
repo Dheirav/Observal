@@ -19,7 +19,7 @@ from rich.table import Table
 
 from observal_cli import client
 from observal_cli.prompts import text_input
-from observal_cli.render import console, output_json, relative_time, spinner, status_badge
+from observal_cli.render import OutputMode, console, output_json, relative_time, spinner, status_badge
 
 # ── Constants ──────────────────────────────────────────────────
 
@@ -154,7 +154,7 @@ def version_publish(
 def version_list(
     component_type: str = typer.Argument(..., help="Component type: hook, skill, prompt, mcp, sandbox"),
     listing: str = typer.Argument(..., help="Listing name or ID"),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table or json"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """List version history for a registry component.
 

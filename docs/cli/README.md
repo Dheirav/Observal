@@ -77,7 +77,6 @@ Read-heavy commands (`list`, `show`, `traces`, `spans`) support `--output`:
 ```bash
 observal registry mcp list --output table    # default, TTY-friendly
 observal registry mcp list --output json     # machine-readable
-observal registry mcp list --output plain    # CSV-like, script-friendly
 ```
 
 ## Aliases
