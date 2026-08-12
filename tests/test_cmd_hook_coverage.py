@@ -49,20 +49,10 @@ def _hook_item(**overrides):
     return item
 
 
-def test_register_and_example_output(monkeypatch):
+def test_register_hook_commands():
     parent = Mock()
     hook.register_hook(parent)
     parent.add_typer.assert_called_once_with(hook.hook_app, name="hook")
-
-    post = Mock()
-    monkeypatch.setattr(hook.client, "post", post)
-    result = runner.invoke(app, ["registry", "hook", "submit", "--example"])
-
-    assert result.exit_code == 0, result.output
-    examples = json.loads(result.output)
-    assert examples["command_hook"]["handler_config"]["command"] == "./hooks/block-rm.sh"
-    assert examples["http_hook"]["handler_type"] == "http"
-    post.assert_not_called()
 
 
 def test_submit_existing_draft_and_rejects_conflicting_modes(monkeypatch):

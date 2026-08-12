@@ -37,7 +37,13 @@ except ImportError:
 
 server_app = typer.Typer(
     name="server",
-    help="Manage the embedded Observal server (PostgreSQL + ClickHouse + Redis + API).",
+    help=(
+        "Manage the embedded Observal server (PostgreSQL + ClickHouse + Redis + API).\n\n"
+        "Examples:\n"
+        "  observal server status\n"
+        "  observal server start\n"
+        "  observal server logs api"
+    ),
     no_args_is_help=True,
 )
 
@@ -231,11 +237,10 @@ def logs(
 ) -> None:
     """Show service logs.
 
-    Example:
+    Examples:
         observal server logs
         observal server logs postgres
         observal server logs -f
-        observal server logs api -n 100
     """
     optic.trace("service={}, follow={}", service, follow)
     log_files = {
@@ -466,7 +471,6 @@ def server_upgrade(
         observal server upgrade
         observal server upgrade --version 0.9.0
         observal server upgrade --dry-run
-        observal server upgrade --skip-backup --force
     """
     optic.trace("version={}, skip_backup={}", version, skip_backup)
     _require_super_admin()

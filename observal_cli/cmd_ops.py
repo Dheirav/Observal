@@ -35,14 +35,28 @@ from observal_cli.render import (
 
 ops_app = typer.Typer(
     name="ops",
-    help="Observability and operational commands (traces, telemetry, dashboard, feedback)",
+    help=(
+        "Observability and operational commands (traces, telemetry, dashboard, feedback)\n\n"
+        "Examples:\n"
+        "  observal ops traces\n"
+        "  observal ops metrics my-agent --type agent\n"
+        "  observal ops telemetry status"
+    ),
     no_args_is_help=True,
 )
 
 
 # ── Review ───────────────────────────────────────────────
 
-review_app = typer.Typer(help="Admin review commands")
+review_app = typer.Typer(
+    help=(
+        "Admin review commands\n\n"
+        "Examples:\n"
+        "  observal admin review list\n"
+        "  observal admin review show 1\n"
+        "  observal admin review approve 1"
+    )
+)
 
 
 @review_app.command(name="list")
@@ -172,8 +186,6 @@ def review_approve(
         observal admin review approve my-mcp-server
 
         observal admin review approve my-agent --agent
-
-        observal admin review approve my-bundle --bundle
     """
     resolved = config.resolve_alias(review_id)
     if agent:
@@ -233,7 +245,9 @@ def review_reject(
 
 # ── Telemetry ────────────────────────────────────────────
 
-telemetry_app = typer.Typer(help="Telemetry commands")
+telemetry_app = typer.Typer(
+    help=("Telemetry commands\n\nExamples:\n  observal ops telemetry status\n  observal ops telemetry test")
+)
 
 
 @telemetry_app.command(name="status")
@@ -322,8 +336,6 @@ def _metrics(
         observal ops metrics my-agent --type agent
 
         observal ops metrics @mcp-alias --watch
-
-        observal ops metrics my-mcp --output json
     """
     _metrics_impl(item_id, item_type, output, watch)
 
@@ -589,7 +601,15 @@ def _feedback_impl(listing_id, listing_type, output):
 
 # ── Admin ────────────────────────────────────────────────
 
-admin_app = typer.Typer(help="Admin commands")
+admin_app = typer.Typer(
+    help=(
+        "Admin commands\n\n"
+        "Examples:\n"
+        "  observal admin diagnostics\n"
+        "  observal admin users\n"
+        "  observal admin review list"
+    )
+)
 
 
 @admin_app.command(name="settings")
@@ -1059,8 +1079,6 @@ def admin_security_events(
         observal admin security-events --type auth.login --severity critical
 
         observal admin security-events --actor alice@example.com -n 100
-
-        observal admin security-events --output json
     """
     params: dict = {"limit": str(limit)}
     if event_type:
@@ -1130,8 +1148,6 @@ def admin_audit_log(
         observal admin audit-log --action auth.login --limit 100
 
         observal admin audit-log --actor alice@example.com -r agent
-
-        observal admin audit-log --output json
     """
     from urllib.parse import urlencode
 
@@ -1337,8 +1353,6 @@ def _traces(
         observal ops traces
 
         observal ops traces --turn
-
-        observal ops traces --span --limit 5
 
         observal ops traces --platform kiro --days 7
     """
@@ -1576,7 +1590,13 @@ def _spans_impl(trace_id, output):
 
 self_app = typer.Typer(
     name="self",
-    help="CLI self-management commands (upgrade, downgrade, rollback, status)",
+    help=(
+        "CLI self-management commands (upgrade, downgrade, rollback, status)\n\n"
+        "Examples:\n"
+        "  observal self status\n"
+        "  observal self upgrade\n"
+        "  observal self rollback"
+    ),
     no_args_is_help=True,
 )
 
@@ -1610,7 +1630,6 @@ def upgrade(
         observal self upgrade
         observal self upgrade --version 0.9.0
         observal self upgrade --pre
-        observal self upgrade --force
     """
     from packaging.version import InvalidVersion, Version
 

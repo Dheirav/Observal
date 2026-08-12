@@ -49,29 +49,53 @@ def _remove_co_author(entity_type: str, entity_id: str, user_id: str) -> None:
 
 def make_co_authors_typer(entity_type: str) -> typer.Typer:
     """Create a co-authors sub-typer for a given entity type (agents, mcps, skills, etc.)."""
-    co_app = typer.Typer(help=f"Manage co-authors for {entity_type}")
+    command = {
+        "agents": "agent",
+        "mcps": "registry mcp",
+        "skills": "registry skill",
+        "hooks": "registry hook",
+        "prompts": "registry prompt",
+        "sandboxes": "registry sandbox",
+    }[entity_type]
+    prefix = f"observal {command} co-authors"
+    co_app = typer.Typer(help=f"Manage co-authors for {entity_type}\n\nExamples:\n  {prefix} list my-component")
 
-    @co_app.command(name="list")
     def list_cmd(
         entity_id: str = typer.Argument(help="Entity UUID or name"),
     ):
-        """List co-authors."""
         _list_co_authors(entity_type, entity_id)
 
-    @co_app.command(name="add")
+    list_cmd.__doc__ = f"""List co-authors.
+
+    Examples:
+      {prefix} list my-component
+    """
+    co_app.command(name="list")(list_cmd)
+
     def add_cmd(
         entity_id: str = typer.Argument(help="Entity UUID or name"),
         user: str = typer.Argument(help="Email or username of the user to add"),
     ):
-        """Add a co-author."""
         _add_co_author(entity_type, entity_id, user)
 
-    @co_app.command(name="remove")
+    add_cmd.__doc__ = f"""Add a co-author.
+
+    Examples:
+      {prefix} add my-component alice@example.com
+    """
+    co_app.command(name="add")(add_cmd)
+
     def remove_cmd(
         entity_id: str = typer.Argument(help="Entity UUID or name"),
         user_id: str = typer.Argument(help="UUID of the co-author to remove"),
     ):
-        """Remove a co-author."""
         _remove_co_author(entity_type, entity_id, user_id)
+
+    remove_cmd.__doc__ = f"""Remove a co-author.
+
+    Examples:
+      {prefix} remove my-component 550e8400-e29b-41d4-a716-446655440000
+    """
+    co_app.command(name="remove")(remove_cmd)
 
     return co_app

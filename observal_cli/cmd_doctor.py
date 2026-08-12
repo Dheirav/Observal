@@ -41,7 +41,15 @@ from observal_cli.shared.utils import (
 )
 from observal_shared.harness_registry import get_valid_harnesses
 
-doctor_app = typer.Typer(help="Diagnose and patch harness settings for Observal telemetry")
+doctor_app = typer.Typer(
+    help=(
+        "Diagnose and patch harness settings for Observal telemetry\n\n"
+        "Examples:\n"
+        "  observal doctor\n"
+        "  observal doctor patch --all-harnesses\n"
+        "  observal doctor cleanup --harness claude-code --dry-run"
+    )
+)
 
 
 # ── Helpers ──────────────────────────────────────────────────
@@ -707,10 +715,9 @@ def doctor_cleanup(
 
     \b
     Examples:
-      observal doctor cleanup                          # Clean all supported harnesses
-      observal doctor cleanup --harness claude-code        # Claude Code only
-      observal doctor cleanup --harness kiro               # Kiro only
-      observal doctor cleanup --harness claude-code --dry-run  # Preview without changes
+      observal doctor cleanup
+      observal doctor cleanup --harness claude-code
+      observal doctor cleanup --harness claude-code --dry-run
     """
     optic.trace("harness={}, exclude={}, dry_run={}", harness, exclude, dry_run)
     targets = [harness] if harness else get_valid_harnesses()
