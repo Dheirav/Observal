@@ -39,7 +39,15 @@ from observal_cli.render import (
     status_badge,
 )
 
-mcp_app = typer.Typer(help="MCP server registry commands")
+mcp_app = typer.Typer(
+    help=(
+        "MCP server registry commands\n\n"
+        "Examples:\n"
+        "  observal registry mcp list\n"
+        "  observal registry mcp show my-server\n"
+        "  observal registry mcp install my-server --harness claude-code"
+    )
+)
 
 
 # ── Env var configuration helpers ────────────────────────────
@@ -1215,40 +1223,6 @@ def _install_impl(
 # ── Canonical commands (on mcp_app) ─────────────────────────
 
 
-def _print_mcp_examples() -> None:
-    console.print_json(
-        json.dumps(
-            {
-                "filesystem": {
-                    "mcpServers": {
-                        "filesystem": {
-                            "command": "npx",
-                            "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/dev/project"],
-                        }
-                    }
-                },
-                "git": {
-                    "mcpServers": {
-                        "git": {
-                            "command": "uvx",
-                            "args": ["mcp-server-git", "--repository", "/home/dev/project"],
-                        }
-                    }
-                },
-                "postgres": {
-                    "mcpServers": {
-                        "postgres": {
-                            "command": "npx",
-                            "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://localhost/mydb"],
-                        }
-                    }
-                },
-            },
-            indent=2,
-        )
-    )
-
-
 @mcp_app.command()
 def submit(
     git_url: str = typer.Option(None, "--git", "-g", help="Optional git repo for local OCI setup detection"),
@@ -1258,7 +1232,6 @@ def submit(
     config: bool = typer.Option(False, "--config", hidden=True, help="(deprecated) JSON paste is now the default"),
     draft: bool = typer.Option(False, "--draft", help="Save as draft instead of submitting for review"),
     submit_draft: str | None = typer.Option(None, "--submit", help="Submit a draft for review (MCP ID)"),
-    example: bool = typer.Option(False, "--example", help="Print example MCP configs and exit"),
     team: str | None = typer.Option(None, "--team", help="Teamspace UUID or handle"),
     visibility: str | None = typer.Option(None, "--visibility", help="Visibility: public or team"),
 ):
@@ -1277,24 +1250,10 @@ def submit(
     header values are auto-detected and become install-time prompts.
 
     Examples:
-        # Interactive JSON paste (default)
         observal registry mcp submit
-
-        # Paste JSON and attach a git repo for local OCI setup hints
         observal registry mcp submit --git https://github.com/org/mcp-server --yes
-
-        # Submit with name and category pre-filled
-        observal registry mcp submit --git https://github.com/org/server -n my-server -c developer-tools
-
-        # Save as draft for later editing
-        observal registry mcp submit --draft
-
-        # Submit an existing draft for review
         observal registry mcp submit --submit my-server
     """
-    if example:
-        _print_mcp_examples()
-        return
     if draft and submit_draft:
         rprint(
             "[red]Cannot use --draft and --submit together.[/red] Use --draft to save a new draft, or --submit to submit an existing draft."
@@ -1345,20 +1304,9 @@ def list_mcps(
     displays full details of the selected server.
 
     Examples:
-        # List all approved servers
         observal registry mcp list
-
-        # Search for database-related servers
         observal registry mcp list --search postgres
-
-        # Filter by category, output as JSON
         observal registry mcp list --category ai --output json
-
-        # Interactive fuzzy picker
-        observal registry mcp list --interactive
-
-        # Sort by category, limit to 10 results
-        observal registry mcp list --sort category --limit 10
     """
     _list_impl(category, search, limit, sort, output, interactive=interactive, namespace=namespace, team=team)
 
@@ -1425,16 +1373,8 @@ def show(
     row number from the last list command, or an @alias.
 
     Examples:
-        # Show by name
         observal registry mcp show my-server
-
-        # Show by row number from last list
-        observal registry mcp show 3
-
-        # Show by alias
         observal registry mcp show @fav
-
-        # JSON output
         observal registry mcp show my-server --output json
     """
     optic.trace("mcp_id={}, output={}", mcp_id, output)
@@ -1468,23 +1408,9 @@ def install(
     config files, with placeholder values for any missing env vars.
 
     Examples:
-        # Generate config for Claude Code
         observal registry mcp install my-server --harness claude-code
-
-        # Non-interactive with env vars
-        observal registry mcp install my-server --harness kiro --no-prompt --env API_KEY=sk-123
-
-        # Multiple env vars
-        observal registry mcp install my-server --harness cursor --env API_KEY=sk-123 --env SECRET=abc
-
-        # From env file
         observal registry mcp install my-server --harness claude-code --env-file .env --no-prompt
-
-        # Generate for Cursor and pipe to config file
         observal registry mcp install my-server --harness cursor --raw > .cursor/mcp.json
-
-        # With headers for SSE servers
-        observal registry mcp install my-server --harness kiro --header Authorization='Bearer token'
     """
     optic.trace("mcp_id={}, harness={}", mcp_id, harness)
     env_overrides = {}
@@ -1534,20 +1460,9 @@ def edit_mcp(
     complete update from a JSON file with --from-file.
 
     Examples:
-        # Interactive JSON paste edit
         observal registry mcp edit my-server
-
-        # Update description and category
         observal registry mcp edit my-server -d "New description" -c databases
-
-        # Load updates from a file
         observal registry mcp edit my-server --from-file updates.json
-
-        # Bump version on an approved listing
-        observal registry mcp edit my-server --version 1.2.0
-
-        # Change the git URL
-        observal registry mcp edit my-server --git-url https://github.com/org/new-repo
     """
     optic.trace("mcp_id={}, from_file={}", mcp_id, from_file)
     resolved = client.resolve_registry_reference("mcp", mcp_id)

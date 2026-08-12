@@ -87,18 +87,11 @@ def test_parse_frontmatter_valid_invalid_and_missing_yaml(monkeypatch):
     assert skill._parse_frontmatter(content) == {}
 
 
-def test_submit_example_and_existing_draft(monkeypatch):
+def test_submit_existing_draft(monkeypatch):
     post = Mock(return_value={"id": "skill-1"})
     resolve = Mock(return_value="resolved-draft")
     monkeypatch.setattr(skill.client, "post", post)
     monkeypatch.setattr(skill.client, "resolve_registry_reference", resolve)
-
-    example = runner.invoke(app, ["registry", "skill", "submit", "--example"])
-    assert example.exit_code == 0, example.output
-    examples = json.loads(example.output)
-    assert examples["registry_direct"]["delivery_mode"] == "registry_direct"
-    assert examples["git_fetch"]["skill_path"] == "skills/api-conventions"
-    post.assert_not_called()
 
     submitted = runner.invoke(app, ["registry", "skill", "submit", "--submit", "alice/draft"])
     assert submitted.exit_code == 0, submitted.output

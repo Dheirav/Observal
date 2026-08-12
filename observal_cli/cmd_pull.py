@@ -633,10 +633,7 @@ def register_pull(app: typer.Typer):
         Examples:
           observal agent pull my-agent --harness claude-code --no-prompt
           observal agent pull my-agent --harness claude-code --version 1.2.0
-          observal agent pull my-agent --harness kiro --no-prompt --scope user
           observal agent pull my-agent --harness cursor --no-prompt --dry-run
-          observal agent pull my-agent --harness kiro --no-prompt --env API_KEY=sk-123 --env SECRET=abc
-          observal agent pull my-agent --harness cursor --header Authorization="Bearer sk-123"
         """
         resolved = client.resolve_registry_reference("agent", agent_id)
         target_dir = Path(directory).resolve()

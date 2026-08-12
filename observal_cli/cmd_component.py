@@ -41,7 +41,12 @@ component_app = typer.Typer(
 )
 
 version_app = typer.Typer(
-    help="Manage component versions",
+    help=(
+        "Manage component versions\n\n"
+        "Examples:\n"
+        "  observal registry version list mcp my-server\n"
+        "  observal registry version publish mcp my-server --version 2.0.0 --description 'Breaking change'"
+    ),
     no_args_is_help=True,
 )
 
@@ -86,11 +91,9 @@ def version_publish(
 
     \b
     Examples:
-      observal component version publish mcp my-server -v 2.0.0 -d "Breaking change"
-      observal component version publish hook guard-hook -v 1.1.0 -d "Add timeout" --changelog "Fixed race"
-      observal component version publish skill my-skill -v 1.0.0 -d "Initial" --harness claude-code --harness cursor
-      observal component version publish mcp analyzer --extra '{"transport": "http"}' -d "HTTP support"
-      observal registry version publish sandbox py -v 1.1.0 -d "Python 3.12" --extra '{"runtime_type":"docker","image":"python:3.12-slim","resource_limits":{"timeout":60}}'
+      observal registry version publish mcp my-server -v 2.0.0 -d "Breaking change"
+      observal registry version publish hook guard-hook -v 1.1.0 -d "Add timeout" --changelog "Fixed race"
+      observal registry version publish skill my-skill -v 1.0.0 -d "Initial" --harness claude-code
     """
     optic.trace("component_type={}", component_type)
     _require_valid_type(component_type)
@@ -164,9 +167,9 @@ def version_list(
 
     \b
     Examples:
-      observal component version list mcp my-server
-      observal component version list hook guard-hook --output json
-      observal component version list skill @my-skill-alias
+      observal registry version list mcp my-server
+      observal registry version list hook guard-hook --output json
+      observal registry version list skill @my-skill-alias
     """
     _require_valid_type(component_type)
 

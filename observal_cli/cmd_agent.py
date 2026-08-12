@@ -101,7 +101,15 @@ def _save_agent_yaml(directory: Path, data: dict) -> None:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
 
-agent_app = typer.Typer(help="Agent registry commands")
+agent_app = typer.Typer(
+    help=(
+        "Agent registry commands\n\n"
+        "Examples:\n"
+        "  observal agent list\n"
+        "  observal agent show my-agent\n"
+        "  observal agent pull my-agent --harness claude-code"
+    )
+)
 
 
 @agent_app.command(name="create")
@@ -465,10 +473,7 @@ def agent_list(
     Examples:
       observal agent list
       observal agent list --search my-agent
-      observal agent list --page 2 --limit 20
-      observal agent list --interactive
       observal agent list --output json
-      observal agent list --full-id
     """
     params: dict = {"limit": limit, "offset": (page - 1) * limit}
     if search:
@@ -600,7 +605,6 @@ def agent_show(
 
     Examples:
       observal agent show my-agent
-      observal agent show 3
       observal agent show @myalias
       observal agent show a1b2c3d4-... --output json
     """
@@ -664,7 +668,6 @@ def agent_install(
 
     Examples:
       observal agent install my-agent --harness claude-code
-      observal agent install my-agent --harness kiro
       observal agent install my-agent --harness cursor --raw > config.json
       observal agent install @myalias --harness opencode
     """
@@ -742,6 +745,10 @@ def agent_archive(
 
     Marks the agent as archived. It will no longer appear in public
     listings but can be restored with the unarchive command.
+
+    Examples:
+      observal agent archive my-agent
+      observal agent archive my-agent --yes
     """
     _archive_agent(agent_id, yes)
 
@@ -751,7 +758,12 @@ def agent_delete(
     agent_id: str = typer.Argument(..., help="ID, name, row number, or @alias"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
 ):
-    """Archive an agent. Prefer the archive command."""
+    """Archive an agent. Prefer the archive command.
+
+    Examples:
+      observal agent delete my-agent
+      observal agent delete my-agent --yes
+    """
     _archive_agent(agent_id, yes)
 
 
@@ -1002,7 +1014,6 @@ def agent_publish(
       observal agent publish
       observal agent publish --update
       observal agent publish --draft
-      observal agent publish --dir /tmp/my-agent
     """
     if draft and submit:
         rprint(

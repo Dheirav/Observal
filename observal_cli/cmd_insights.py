@@ -13,7 +13,15 @@ from rich.table import Table
 from observal_cli import client
 from observal_cli.render import OutputMode, console, esc, output_json, relative_time, spinner, status_badge
 
-insights_app = typer.Typer(help="Agent insight reports")
+insights_app = typer.Typer(
+    help=(
+        "Agent insight reports\n\n"
+        "Examples:\n"
+        "  observal ops insights list my-agent\n"
+        "  observal ops insights show my-agent latest\n"
+        "  observal ops insights generate my-agent"
+    )
+)
 
 _registry_name_cache: str | None = None
 
@@ -141,8 +149,6 @@ def insights_show(
         observal ops insights show my-agent 3
 
         observal ops insights show my-agent --section suggestions
-
-        observal ops insights show my-agent 3 --output json
     """
     with spinner("Fetching report..."):
         data = _resolve_report_for_show(target, report_ref)

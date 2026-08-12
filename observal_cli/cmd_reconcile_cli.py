@@ -18,7 +18,16 @@ from observal_cli.sessions.base import (
     recover_cursor_from_server,
 )
 
-reconcile_app = typer.Typer(name="reconcile", help="Push local session transcripts to the server")
+reconcile_app = typer.Typer(
+    name="reconcile",
+    help=(
+        "Push local session transcripts to the server\n\n"
+        "Examples:\n"
+        "  observal reconcile\n"
+        "  observal reconcile --harness kiro\n"
+        "  observal reconcile --since 24 --dry-run"
+    ),
+)
 
 
 @reconcile_app.callback(invoke_without_command=True)

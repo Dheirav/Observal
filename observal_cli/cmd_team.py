@@ -12,9 +12,39 @@ from rich.table import Table
 from observal_cli import client
 from observal_cli.render import OutputMode, output_json
 
-team_app = typer.Typer(name="team", help="Manage teamspaces: creation, membership, and listing.", no_args_is_help=True)
-members_app = typer.Typer(name="members", help="Manage team membership.", no_args_is_help=True)
-invite_app = typer.Typer(name="invite", help="Manage private-team invitation links.", no_args_is_help=True)
+team_app = typer.Typer(
+    name="team",
+    help=(
+        "Manage teamspaces: creation, membership, and listing.\n\n"
+        "Examples:\n"
+        "  observal team list\n"
+        "  observal team show platform-tools\n"
+        "  observal team members list platform-tools"
+    ),
+    no_args_is_help=True,
+)
+members_app = typer.Typer(
+    name="members",
+    help=(
+        "Manage team membership.\n\n"
+        "Examples:\n"
+        "  observal team members list platform-tools\n"
+        "  observal team members add platform-tools alice@example.com\n"
+        "  observal team members remove platform-tools @alice"
+    ),
+    no_args_is_help=True,
+)
+invite_app = typer.Typer(
+    name="invite",
+    help=(
+        "Manage private-team invitation links.\n\n"
+        "Examples:\n"
+        "  observal team invite list platform-tools\n"
+        "  observal team invite create platform-tools\n"
+        "  observal team invite revoke platform-tools INVITE_ID"
+    ),
+    no_args_is_help=True,
+)
 team_app.add_typer(members_app, name="members")
 team_app.add_typer(invite_app, name="invite")
 
@@ -223,7 +253,12 @@ def create_invite(
     expires_days: int = typer.Option(7, min=1, max=365, help="Days until the link expires."),
     max_uses: int | None = typer.Option(None, min=1, help="Maximum access requests; unlimited when omitted."),
 ):
-    """Create a private-team invitation link. Owner or global admin only."""
+    """Create a private-team invitation link. Owner or global admin only.
+
+    Examples:
+      observal team invite create platform-tools
+      observal team invite create platform-tools --name onboarding --expires-days 30
+    """
     team_id = _resolve_team_id(team)
     body: dict = {"expires_in_days": expires_days}
     if name:
@@ -239,7 +274,12 @@ def list_invites(
     team: str = typer.Argument(help="Private team UUID or handle."),
     output: OutputMode = typer.Option("table", help="Output format: table | json"),
 ):
-    """List invitation links for a private teamspace."""
+    """List invitation links for a private teamspace.
+
+    Examples:
+      observal team invite list platform-tools
+      observal team invite list platform-tools --output json
+    """
     team_id = _resolve_team_id(team)
     rows = client.get(f"/api/v1/teams/{team_id}/invites")
     if output == "json":
@@ -275,7 +315,11 @@ def revoke_invite(
     team: str = typer.Argument(help="Private team UUID or handle."),
     invite_id: str = typer.Argument(help="Invitation UUID."),
 ):
-    """Revoke a private-team invitation link. Owner or global admin only."""
+    """Revoke a private-team invitation link. Owner or global admin only.
+
+    Examples:
+      observal team invite revoke platform-tools 550e8400-e29b-41d4-a716-446655440000
+    """
     team_id = _resolve_team_id(team)
     response = client.post(f"/api/v1/teams/{team_id}/invites/{invite_id}/revoke")
     rprint(f"[green]Invite {response.get('state')}.[/green]")

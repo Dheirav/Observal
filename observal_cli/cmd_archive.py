@@ -17,6 +17,13 @@ _ENTITY_LABELS = {
     "prompts": "prompt",
     "sandboxes": "sandbox",
 }
+_COMMAND_NAMES = {
+    "mcps": "mcp",
+    "skills": "skill",
+    "hooks": "hook",
+    "prompts": "prompt",
+    "sandboxes": "sandbox",
+}
 
 
 def _archive_component(entity_type: str, entity_id: str, yes: bool) -> None:
@@ -42,18 +49,30 @@ def _unarchive_component(entity_type: str, entity_id: str, yes: bool) -> None:
 
 
 def add_archive_commands(app: typer.Typer, entity_type: str) -> None:
-    @app.command(name="archive")
+    command = _COMMAND_NAMES[entity_type]
+
     def archive(
         entity_id: str = typer.Argument(help="Entity UUID or name"),
         yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
     ):
-        """Archive this component."""
         _archive_component(entity_type, entity_id, yes)
 
-    @app.command(name="unarchive")
+    archive.__doc__ = f"""Archive this component.
+
+    Examples:
+      observal registry {command} archive my-component
+    """
+    app.command(name="archive")(archive)
+
     def unarchive(
         entity_id: str = typer.Argument(help="Entity UUID or name"),
         yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
     ):
-        """Restore an archived component."""
         _unarchive_component(entity_type, entity_id, yes)
+
+    unarchive.__doc__ = f"""Restore an archived component.
+
+    Examples:
+      observal registry {command} unarchive my-component
+    """
+    app.command(name="unarchive")(unarchive)

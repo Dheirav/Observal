@@ -37,11 +37,25 @@ from observal_shared.namespace_rules import NAMESPACE_RULE_TEXT, is_valid_namesp
 
 auth_app = typer.Typer(
     name="auth",
-    help="Authentication and account commands",
+    help=(
+        "Authentication and account commands\n\n"
+        "Examples:\n"
+        "  observal auth login\n"
+        "  observal auth whoami\n"
+        "  observal auth logout"
+    ),
     no_args_is_help=True,
 )
 
-config_app = typer.Typer(help="CLI configuration")
+config_app = typer.Typer(
+    help=(
+        "CLI configuration\n\n"
+        "Examples:\n"
+        "  observal config show\n"
+        "  observal config set output json\n"
+        "  observal config path"
+    )
+)
 
 
 # ── Auth commands (registered on auth_app) ──────────────────
@@ -151,9 +165,7 @@ def login(
     Examples:
         observal auth login
         observal auth login --server http://observal.internal:80
-        observal auth login -e admin@example.com -p 'MyP@ss1234!'
         observal auth login --sso
-        observal auth login --saml
     """
     welcome_banner()
 

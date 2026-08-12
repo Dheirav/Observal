@@ -40,7 +40,12 @@ from observal_cli.support.redaction import RedactionStats, redact_value
 CURRENT_SCHEMA_VERSION = 1
 
 support_app = typer.Typer(
-    help="Generate and inspect diagnostic support bundles. Bundles contain no customer data or row contents.",
+    help=(
+        "Generate and inspect diagnostic support bundles. Bundles contain no customer data or row contents.\n\n"
+        "Examples:\n"
+        "  observal doctor support bundle\n"
+        "  observal doctor support inspect ./observal-support.tar.gz"
+    ),
     no_args_is_help=True,
 )
 
@@ -213,9 +218,9 @@ def bundle(
     exposing sensitive data. Archive permissions are set to 0600.
 
     Examples:
-        observal support bundle
-        observal support bundle -o /tmp/diag.tar.gz --logs-since 2h
-        observal support bundle --no-include-system
+        observal doctor support bundle
+        observal doctor support bundle -o /tmp/diag.tar.gz --logs-since 2h
+        observal doctor support bundle --no-include-system
     """
     # Determine output path
     if output is None:
@@ -508,8 +513,8 @@ def inspect(
     specific file from the archive using --show.
 
     Examples:
-        observal support inspect ./observal-support-20260101-120000.tar.gz
-        observal support inspect bundle.tar.gz --show health/postgres.json
+        observal doctor support inspect ./observal-support-20260101-120000.tar.gz
+        observal doctor support inspect bundle.tar.gz --show health/postgres.json
     """
     if not bundle_path.exists():
         render.error(f"Bundle not found: {bundle_path}")

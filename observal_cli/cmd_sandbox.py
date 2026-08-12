@@ -30,58 +30,15 @@ from observal_cli.render import (
     status_badge,
 )
 
-sandbox_app = typer.Typer(help="Sandbox registry commands")
-
-
-def _print_sandbox_examples() -> None:
-    examples = {
-        "python-pytest": {
-            "name": "python-pytest",
-            "version": "1.0.0",
-            "description": "Run Python tests in a reviewed Docker image",
-            "owner": "your-team",
-            "runtime_type": "docker",
-            "image": "python:3.12-slim",
-            "resource_limits": {"timeout": 60, "memory_mb": 512, "cpu_count": 1},
-            "network_policy": "none",
-            "entrypoint": "pytest",
-            "runtime_config": {},
-            "source_url": "https://github.com/docker-library/python",
-            "source_ref": "master",
-            "sandbox_path": "3.12/slim-bookworm",
-        },
-        "node-tests": {
-            "name": "node-tests",
-            "version": "1.0.0",
-            "description": "Run Node test and build commands",
-            "owner": "your-team",
-            "runtime_type": "docker",
-            "image": "node:22-alpine",
-            "resource_limits": {"timeout": 120, "memory_mb": 1024, "cpu_count": 2},
-            "network_policy": "none",
-            "entrypoint": "npm test",
-            "runtime_config": {},
-            "source_url": "https://github.com/nodejs/docker-node",
-            "source_ref": "main",
-            "sandbox_path": "22/alpine3.22",
-        },
-        "go-tests": {
-            "name": "go-tests",
-            "version": "1.0.0",
-            "description": "Run Go tests in an Alpine Go image",
-            "owner": "your-team",
-            "runtime_type": "docker",
-            "image": "golang:1.24-alpine",
-            "resource_limits": {"timeout": 180, "memory_mb": 1024, "cpu_count": 2},
-            "network_policy": "none",
-            "entrypoint": "go test ./...",
-            "runtime_config": {},
-            "source_url": "https://github.com/docker-library/golang",
-            "source_ref": "master",
-            "sandbox_path": "1.24/alpine3.21",
-        },
-    }
-    output_json(examples)
+sandbox_app = typer.Typer(
+    help=(
+        "Sandbox registry commands\n\n"
+        "Examples:\n"
+        "  observal registry sandbox list\n"
+        "  observal registry sandbox show my-sandbox\n"
+        "  observal registry sandbox submit --from-file sandbox.json"
+    )
+)
 
 
 def register_sandbox(app: typer.Typer):
@@ -106,7 +63,6 @@ def sandbox_submit(
     sandbox_path: str | None = typer.Option(None, "--sandbox-path", help="Path in source repo"),
     draft: bool = typer.Option(False, "--draft", help="Save as draft instead of submitting for review"),
     submit_draft: str | None = typer.Option(None, "--submit", help="Submit a draft for review (sandbox ID)"),
-    example: bool = typer.Option(False, "--example", help="Print example sandbox payloads and exit"),
     team: str | None = typer.Option(None, "--team", help="Teamspace UUID or handle"),
     visibility: str | None = typer.Option(None, "--visibility", help="Visibility: public or team"),
 ):
@@ -119,14 +75,10 @@ def sandbox_submit(
     Only submit sandboxes you created or are the point-of-contact for.
 
     Examples:
-        observal registry sandbox submit
         observal registry sandbox submit --from-file sandbox.json
         observal registry sandbox submit --draft
         observal registry sandbox submit --submit abc123
     """
-    if example:
-        _print_sandbox_examples()
-        return
     rprint("[dim]Note: Only submit components you created (private) or are the point-of-contact for (external).[/dim]")
     if draft and submit_draft:
         rprint(

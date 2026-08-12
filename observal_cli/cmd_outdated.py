@@ -47,7 +47,6 @@ def register_outdated(app: typer.Typer):
           observal outdated
           observal outdated --harness claude-code
           observal outdated --output json
-          observal outdated --no-report
         """
         from observal_cli.lockfile import get_all_entries
 

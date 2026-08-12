@@ -24,7 +24,13 @@ from observal_cli.render import OutputMode, console, esc, output_json, spinner
 
 inbox_app = typer.Typer(
     name="inbox",
-    help="Your work and event feed: reviews, decisions, and update notices",
+    help=(
+        "Your work and event feed: reviews, decisions, and update notices\n\n"
+        "Examples:\n"
+        "  observal inbox\n"
+        "  observal inbox --action-required\n"
+        "  observal inbox list --state open --output json"
+    ),
     no_args_is_help=False,
     invoke_without_command=True,
 )

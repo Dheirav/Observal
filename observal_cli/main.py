@@ -68,7 +68,13 @@ def _version_option(value: bool):
 
 app = typer.Typer(
     name="observal",
-    help="Observal: MCP Server & Agent Registry CLI",
+    help=(
+        "Observal: MCP Server & Agent Registry CLI\n\n"
+        "Examples:\n"
+        "  observal scan\n"
+        "  observal agent list\n"
+        "  observal registry mcp list"
+    ),
     no_args_is_help=True,
     rich_markup_mode="rich",
     pretty_exceptions_enable=False,
@@ -179,7 +185,13 @@ from observal_cli.cmd_uninstall import register_uninstall
 
 registry_app = typer.Typer(
     name="registry",
-    help="Component registry (MCPs, skills, hooks, prompts, sandboxes)",
+    help=(
+        "Component registry (MCPs, skills, hooks, prompts, sandboxes)\n\n"
+        "Examples:\n"
+        "  observal registry mcp list\n"
+        "  observal registry skill list\n"
+        "  observal registry recommend"
+    ),
     no_args_is_help=True,
 )
 
