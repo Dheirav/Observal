@@ -5,11 +5,14 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 import typer
 from rich import print as rprint
 from rich.table import Table
 
 from observal_cli import client
+from observal_cli.errors import ErrorCategory, fail
 from observal_cli.render import OutputMode, esc, output_json
 
 
@@ -41,8 +44,18 @@ def _list_co_authors(entity_type: str, entity_id: str, output: OutputMode) -> No
 
 
 def _add_co_author(entity_type: str, entity_id: str, user: str, output: OutputMode) -> None:
+    user = user.strip()
+    identity = user.lstrip("@")
+    if not identity:
+        fail(
+            ErrorCategory.VALIDATION,
+            "Co-author email or username is required.",
+            operation="Add co-author",
+            resource=f"{entity_type} co-authors",
+            remediation="Provide an email address or username.",
+        )
     resolved = _entity_id(entity_type, entity_id)
-    body = {"email": user.lower()} if "@" in user and not user.startswith("@") else {"username": user.lstrip("@")}
+    body = {"email": user.lower()} if "@" in user and not user.startswith("@") else {"username": identity}
     response = client.post(f"/api/v1/{entity_type}/{resolved}/co-authors", json_data=body)
     if output == "json":
         output_json(response)
@@ -51,6 +64,16 @@ def _add_co_author(entity_type: str, entity_id: str, user: str, output: OutputMo
 
 
 def _remove_co_author(entity_type: str, entity_id: str, user_id: str, output: OutputMode) -> None:
+    try:
+        user_id = str(UUID(user_id))
+    except ValueError:
+        fail(
+            ErrorCategory.VALIDATION,
+            "Co-author user ID must be a UUID.",
+            operation="Remove co-author",
+            resource=f"{entity_type} co-authors",
+            remediation="Copy the user ID from the co-author list JSON result.",
+        )
     resolved = _entity_id(entity_type, entity_id)
     response = client.delete(f"/api/v1/{entity_type}/{resolved}/co-authors/{user_id}")
     if output == "json":
@@ -70,7 +93,8 @@ def make_co_authors_typer(entity_type: str) -> typer.Typer:
         "sandboxes": "registry sandbox",
     }[entity_type]
     prefix = f"observal {command} co-authors"
-    co_app = typer.Typer(help=f"Manage co-authors for {entity_type}\n\nExamples:\n  {prefix} list alice/my-component")
+    example = "alice/my-agent" if entity_type == "agents" else "alice/my-component"
+    co_app = typer.Typer(help=f"Manage co-authors for {entity_type}\n\nExamples:\n  {prefix} list {example}")
 
     def list_cmd(
         entity_id: str = typer.Argument(help="Entity UUID or canonical name"),
@@ -81,8 +105,8 @@ def make_co_authors_typer(entity_type: str) -> typer.Typer:
     list_cmd.__doc__ = f"""List co-authors.
 
     Examples:
-      {prefix} list alice/my-component
-      {prefix} list alice/my-component --output json
+      {prefix} list {example}
+      {prefix} list {example} --output json
     """
     co_app.command(name="list")(list_cmd)
 
@@ -96,8 +120,8 @@ def make_co_authors_typer(entity_type: str) -> typer.Typer:
     add_cmd.__doc__ = f"""Add a co-author.
 
     Examples:
-      {prefix} add alice/my-component alice@example.com
-      {prefix} add alice/my-component @alice --output json
+      {prefix} add {example} alice@example.com
+      {prefix} add {example} @alice --output json
     """
     co_app.command(name="add")(add_cmd)
 
@@ -111,8 +135,8 @@ def make_co_authors_typer(entity_type: str) -> typer.Typer:
     remove_cmd.__doc__ = f"""Remove a co-author.
 
     Examples:
-      {prefix} remove alice/my-component 550e8400-e29b-41d4-a716-446655440000
-      {prefix} remove alice/my-component 550e8400-e29b-41d4-a716-446655440000 --output json
+      {prefix} remove {example} 550e8400-e29b-41d4-a716-446655440000
+      {prefix} remove {example} 550e8400-e29b-41d4-a716-446655440000 --output json
     """
     co_app.command(name="remove")(remove_cmd)
 

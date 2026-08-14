@@ -46,7 +46,7 @@ For open-ended asks instead ("what am I missing", "what should I install"), do n
 Install an agent's full config (rules, MCP servers, hooks, skills, sandboxes, prompts) into a local harness.
 
 ```bash
-observal agent pull NAMESPACE/AGENT_SLUG --harness kiro --no-prompt --dir .
+observal agent pull NAMESPACE/AGENT_SLUG --harness kiro --no-prompt --dir . --output json
 ```
 
 **For Pi (`--harness pi`):**

@@ -914,7 +914,14 @@ def test_hook_co_author_commands_render_and_preserve_http_boundaries(monkeypatch
     )
     removed = runner.invoke(
         app,
-        ["registry", "hook", "co-authors", "remove", "hook-1", "user-1"],
+        [
+            "registry",
+            "hook",
+            "co-authors",
+            "remove",
+            "hook-1",
+            "22222222-2222-2222-2222-222222222222",
+        ],
     )
 
     assert all(result.exit_code == 0 for result in (listed, empty, added, removed))
@@ -931,7 +938,7 @@ def test_hook_co_author_commands_render_and_preserve_http_boundaries(monkeypatch
         "/api/v1/hooks/hook-1/co-authors",
         json_data={"email": "dev@example.com"},
     )
-    delete.assert_called_once_with("/api/v1/hooks/hook-1/co-authors/user-1")
+    delete.assert_called_once_with("/api/v1/hooks/hook-1/co-authors/22222222-2222-2222-2222-222222222222")
 
 
 def test_hook_submit_json_is_noninteractive_and_clean(monkeypatch):

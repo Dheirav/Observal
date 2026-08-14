@@ -20,12 +20,12 @@ Complete reference for the `observal` CLI. Every subcommand has its own page; th
 | [`observal scan`](scan.md)                                                                 | Discover what's installed across your harnesses (read-only)                           |
 | [`observal outdated`](outdated.md)                                                         | Compare installed agent and component versions with the active registry               |
 | [`observal inbox`](inbox.md)                                                               | Read and update the signed-in user's work and event feed                               |
-| [`observal agent pull`](pull.md)                                                           | Install a published agent into an harness                                             |
+| [`observal agent pull`](pull.md)                                                           | Install a published agent into a harness                                               |
 | [`observal registry`](registry.md)                                                         | Publish and manage components (MCP / skill / hook / prompt / sandbox)                 |
 | [`observal registry recommend`](recommend.md)                                              | Get personalized component recommendations                                            |
 | [`observal registry version`](component.md)                                                | Publish and inspect component versions                                                |
 | [`observal registry models`](models.md)                                                    | Inspect packaged harness model catalogs                                               |
-| [`observal agent`](agent.md)                                                               | Author and publish agents                                                             |
+| [`observal agent`](agent.md)                                                               | Create, install, and manage agents                                                     |
 | [`observal ops`](ops.md)                                                                   | Observability and operations (sessions, events, metrics, feedback)                    |
 | [`observal admin`](admin.md)                                                               | Admin operations (settings, users, review, security)                                  |
 | [`observal support`](https://github.com/Observal/Observal/blob/main/docs/cli/support.md) | Generate and inspect diagnostic support bundles                                       |
