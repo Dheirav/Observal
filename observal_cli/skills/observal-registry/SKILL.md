@@ -30,8 +30,9 @@ observal registry skill list --namespace platform-tools --output json
 observal registry skill list --team platform-tools --search 'frontend design' --output json
 observal registry skill list --task-type code-review --harness claude-code --output json
 observal registry hook list --event UserPromptSubmit --output json
-observal registry prompt list --category coding --output json
+observal registry prompt list --category code-generation --output json
 observal registry sandbox list --runtime docker --output json
+observal registry models --output json
 
 observal registry mcp my --output json
 observal registry skill my --output json
