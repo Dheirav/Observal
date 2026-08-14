@@ -14,15 +14,15 @@ Every command available in the installed CLI. This block is generated from the T
 - `observal outdated`: Show installed agents and standalone components with their registry status.
 - `observal scan`: Show a read-only inventory of your local harness setup.
 
-**`observal admin`**: Admin commands
+**`observal admin`**: Core administration and submission review commands
 
-- `observal admin review`: Admin review commands
-  - `observal admin review approve`: Approve a submission (component, agent, or bundle).
-  - `observal admin review list`: List pending submissions awaiting admin review.
-  - `observal admin review reject`: Reject a submission (component, agent, or bundle).
-  - `observal admin review show`: Show review details for a component or agent.
-- `observal admin audit-log`: Query the audit log.
-- `observal admin audit-log-export`: Export audit log as CSV.
+- `observal admin review`: Submission review commands
+  - `observal admin review approve`: Approve a component, Agent, or bundle submission.
+  - `observal admin review list`: List pending submissions awaiting review.
+  - `observal admin review reject`: Reject a component, Agent, or bundle submission.
+  - `observal admin review show`: Show review details for a component or Agent.
+- `observal admin audit-log`: Query the compliance audit log.
+- `observal admin audit-log-export`: Export the compliance audit log as CSV or JSON.
 - `observal admin cache-clear`: Clear all server caches.
 - `observal admin create-user`: Create a new user account. Requires admin privileges.
 - `observal admin delete-user`: Delete a user account. Requires admin privileges.

@@ -79,6 +79,16 @@ observal ops traces --span --output json            # current session details
 observal ops insights list <agent> --output json    # agent insight reports
 ```
 
+### Administration
+
+```
+observal admin diagnostics --output json             # server health
+observal admin users --output json                   # user management
+observal admin security-events --output json         # security events
+observal admin audit-log --output json               # compliance audit events
+observal admin review list --output json             # pending submissions
+```
+
 ### Utilities
 
 ```
