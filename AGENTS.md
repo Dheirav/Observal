@@ -151,14 +151,12 @@ observal
 │                            # versions, transfer-owner, co-authors
 │   └── pull                 #   install agent into harness (primary workflow)
 ├── team                     # list, show, create, delete, leave, members (list/add/remove)
-├── ops                      # metrics, top, rate, rate-update, rate-delete, feedback,
-│                            # traces, spans
-│   ├── telemetry            #   status, test
+├── ops                      # top, rate, rate-update, rate-delete, feedback, traces
+│   ├── telemetry            #   status
 │   ├── logs                 #   live dev log viewer
 │   └── insights             #   agent insight reports
-├── admin                    # settings, set, users, review (list/show/approve/reject)
+├── admin                    # core administration + review (list/show/approve/reject)
 ├── self                     # upgrade, downgrade, rollback, status
-│   └── uninstall            #   tear down Docker stack and config
 ├── doctor                   # diagnose + patch harness settings for all 10 harnesses
 │   ├── patch / cleanup      #   install or remove telemetry hooks
 │   └── support              #   diagnostic bundle with redaction
@@ -167,7 +165,7 @@ observal
                              #   `observal migrate` when server deps are unavailable)
 ```
 
-`pull` and `uninstall` are subcommands (`observal agent pull`, `observal self uninstall`), not top-level commands. Run `observal --help` to confirm before documenting a command path.
+`pull` is a subcommand (`observal agent pull`), not a top-level command. Run `observal --help` to confirm before documenting a command path.
 
 ## Server routes
 

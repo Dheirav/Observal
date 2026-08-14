@@ -203,11 +203,10 @@ Every command available in the installed CLI. This block is generated from the T
 
 **`observal self`**: CLI self-management commands (upgrade, downgrade, rollback, status)
 
-- `observal self upgrade`: Upgrade the observal CLI to the latest (or specified) version.
-- `observal self downgrade`: Downgrade the observal CLI to a previous version.
-- `observal self rollback`: Restore the CLI to the version before the last upgrade/downgrade.
-- `observal self status`: Show current CLI version, install method, and update availability.
-- `observal self uninstall`: Completely uninstall Observal: stop containers, remove volumes, delete repo and config.
+- `observal self upgrade`: Upgrade the Observal CLI to the latest or specified version.
+- `observal self downgrade`: Downgrade the Observal CLI to a previous version.
+- `observal self rollback`: Restore the CLI binary saved before the last version change.
+- `observal self status`: Show the CLI version, install method, and update availability.
 
 **`observal team`**: Manage teamspaces: creation, membership, and listing.
 

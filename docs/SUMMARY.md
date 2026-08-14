@@ -48,7 +48,6 @@
 * [observal registry prompt](cli/prompt.md)
 * [observal server](cli/server.md)
 * [observal registry skill](cli/skill.md)
-* [observal uninstall](cli/uninstall.md)
 
 ## Self-Hosting
 

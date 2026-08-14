@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0
 name: observal-advanced
 command: observal
-description: Advanced Observal operations including session reconciliation, CLI upgrades and downgrades, complete uninstallation, and local fallback mode for offline use. Use when the user wants to reconcile sessions, upgrade or downgrade the CLI, uninstall Observal, or write agent configs locally when the server is unreachable.
+description: Advanced Observal operations including session reconciliation, CLI upgrades, downgrades, rollback, status checks, and local fallback mode for offline use. Use when the user wants to reconcile sessions, manage the installed CLI version, or write Agent configs locally when the server is unreachable.
 version: 2.0.0
 owner: observal
 ---
@@ -32,31 +32,15 @@ observal reconcile --harness claude-code --since 24
 ## Procedure: Self-Manage CLI
 
 ```bash
-observal self status
-observal self upgrade --force
-observal self upgrade --version 2.5.0 --force
-observal self downgrade --list
-observal self downgrade --version 2.4.0 --force
-observal self rollback
+observal self status --output json
+observal self upgrade --force --output json
+observal self upgrade --version 2.5.0 --force --output json
+observal self downgrade --list --output json
+observal self downgrade --version 2.4.0 --force --output json
+observal self rollback --force --output json
 ```
 
-Use `--force` when running upgrades or downgrades from an agent so the command is non-interactive.
-
----
-
-## Procedure: Uninstall
-
-Completely removes Observal. **Destructive and irreversible.**
-
-```bash
-observal self uninstall
-```
-
-Requires typing `confirm` (not `--yes`). Selective flags:
-- `--keep-config`: preserve `~/.observal/`
-- `--keep-cli`: keep the CLI binary
-- `--keep-repo`: keep the cloned repo
-- `--repo-dir PATH`: specify repo location
+Use `--force` for upgrade, downgrade, and rollback in JSON mode. Standalone binary changes require a published checksum because JSON mode never accepts an unsigned download interactively.
 
 ---
 

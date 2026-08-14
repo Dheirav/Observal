@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from contextlib import nullcontext
+from contextlib import nullcontext, redirect_stdout
+from io import StringIO
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from urllib.parse import quote
@@ -24,7 +25,7 @@ from typer.models import OptionInfo
 
 from observal_cli import client, config
 from observal_cli.constants import VALID_HARNESSES
-from observal_cli.errors import ErrorCategory, fail
+from observal_cli.errors import CliError, ErrorCategory, fail
 from observal_cli.prompts import password_input
 from observal_cli.render import (
     OutputMode,
@@ -1728,290 +1729,491 @@ self_app = typer.Typer(
 )
 
 
-def _do_install(install_info, target_version: str, direction: str) -> None:
-    """Execute the actual version change. Delegates to upgrade_executor module."""
-    # Lazy import to avoid circular dependency (upgrade_executor imports from version_check)
+def _do_install(install_info, target_version: str, direction: str, output: OutputMode | str = "table") -> None:
+    """Execute and verify one CLI version change."""
     from observal_cli.upgrade_executor import execute
 
-    execute(install_info, target_version, direction, spinner)
+    output = _command_value(output)
+    progress = spinner if output != "json" else lambda _message=None: nullcontext()
+    capture = redirect_stdout(StringIO()) if output == "json" else nullcontext()
+    try:
+        with capture:
+            execute(install_info, target_version, direction, progress, interactive=output != "json")
+    except CliError:
+        raise
+    except typer.Abort:
+        raise
+    except typer.Exit as error:
+        fail(
+            ErrorCategory.UNAVAILABLE,
+            f"CLI {direction} failed.",
+            operation=f"{direction.title()} Observal CLI",
+            resource="CLI installation",
+            remediation="Review the release, install method, and filesystem permissions, then retry.",
+            detail=repr(error),
+        )
+    except Exception as error:
+        fail(
+            ErrorCategory.UNAVAILABLE,
+            f"CLI {direction} failed.",
+            operation=f"{direction.title()} Observal CLI",
+            resource="CLI installation",
+            remediation="Check network access, the install method, and filesystem permissions, then retry.",
+            detail=repr(error),
+        )
+
+
+def _managed_install(install, operation: str) -> None:
+    from observal_cli.install_detector import InstallMethod
+
+    if install.method not in (InstallMethod.HOMEBREW, InstallMethod.SYSTEM_PACKAGE):
+        return
+    manager = install.managed_by or "the system package manager"
+    fail(
+        ErrorCategory.CONFLICT,
+        f"Observal is managed by {manager}.",
+        operation=operation,
+        resource="CLI installation",
+        remediation=f"Use `{manager} upgrade observal` or the equivalent package-manager command.",
+    )
 
 
 @self_app.command()
 def upgrade(
     version: str | None = typer.Option(
-        None, "--version", "-v", help="Target version to upgrade to (e.g. 0.9.0). Defaults to latest stable."
+        None, "--version", "-v", help="Target version to upgrade to. Defaults to the latest stable release."
     ),
-    pre: bool = typer.Option(False, "--pre", help="Include pre-release versions when resolving latest"),
+    pre: bool = typer.Option(False, "--pre", help="Include prerelease versions when resolving latest"),
     force: bool = typer.Option(False, "--force", "-f", help="Skip interactive confirmation prompt"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
-    """Upgrade the observal CLI to the latest (or specified) version.
-
-    Downloads the new binary from GitHub releases, verifies its SHA-256
-    checksum, and atomically replaces the current binary. A backup of
-    the old version is kept for rollback.
-
-    Managed installs (Homebrew, system packages) are detected and
-    blocked with guidance to use the package manager instead.
+    """Upgrade the Observal CLI to the latest or specified version.
 
     Examples:
-        observal self upgrade
-        observal self upgrade --version 0.9.0
-        observal self upgrade --pre
+        observal self upgrade --force
+        observal self upgrade --version 2.5.0 --force --output json
+        observal self upgrade --pre --force
     """
     from packaging.version import InvalidVersion, Version
 
     from observal_cli import install_detector, version_check
-    from observal_cli.install_detector import InstallMethod
     from observal_cli.upgrade_lock import UpgradeLockError, acquire_lock, release_lock
 
+    force = _command_value(force)
+    output = _command_value(output)
     current = version_check.get_current_version()
     install = install_detector.detect()
+    _managed_install(install, "Upgrade Observal CLI")
 
-    # Block managed installs
-    if install.method in (InstallMethod.HOMEBREW, InstallMethod.SYSTEM_PACKAGE):
-        mgr = install.managed_by or "your package manager"
-        rprint(f"[yellow]Observal is managed by {mgr}.[/yellow]")
-        rprint(f"[dim]Upgrade with: {mgr} upgrade observal[/dim]")
-        raise typer.Exit(1)
-
-    # Resolve target
     if version:
         try:
-            Version(version)
+            target = str(Version(version))
         except InvalidVersion:
-            rprint(f"[red]Invalid version: {version}[/red]")
-            raise typer.Exit(1)
-        target = version
+            fail(
+                ErrorCategory.VALIDATION,
+                f"Invalid target version: {version}.",
+                operation="Upgrade Observal CLI",
+                resource="target version",
+                remediation="Use a release version such as 2.5.0.",
+            )
     else:
-        with spinner("Checking for updates..."):
-            rel = version_check._fetch_from_github(include_pre=pre)
-        if not rel:
-            rprint("[red]Failed to fetch latest release from GitHub.[/red]")
-            raise typer.Exit(1)
-        target = rel["latest_version"]
+        with _command_progress(output, "Checking for updates..."):
+            release = version_check._fetch_from_github(include_pre=pre)
+        if not release or not release.get("latest_version"):
+            fail(
+                ErrorCategory.UNAVAILABLE,
+                "Could not fetch the latest CLI release from GitHub.",
+                operation="Upgrade Observal CLI",
+                resource="GitHub releases",
+                remediation="Check network access and retry, or provide --version.",
+            )
+        try:
+            target = str(Version(release["latest_version"]))
+        except InvalidVersion:
+            fail(
+                ErrorCategory.UNAVAILABLE,
+                "GitHub returned an invalid CLI release version.",
+                operation="Upgrade Observal CLI",
+                resource="GitHub releases",
+                remediation="Retry later or provide a known release with --version.",
+            )
 
     if target == current:
-        rprint(f"[green]Already on v{current} (latest).[/green]")
-        raise typer.Exit(0)
+        result = {
+            "action": "upgrade",
+            "status": "up_to_date",
+            "current_version": current,
+            "target_version": target,
+            "install_method": install.method.value,
+            "path": str(install.path),
+        }
+        if output == "json":
+            output_json(result)
+        else:
+            rprint(f"[green]Already on v{esc(current)} (latest).[/green]")
+        return
 
     try:
         if Version(target) < Version(current):
-            rprint(f"[yellow]v{target} is older than current v{current}.[/yellow]")
-            rprint(f"[dim]Use: observal self downgrade --version {target}[/dim]")
-            raise typer.Exit(1)
+            fail(
+                ErrorCategory.VALIDATION,
+                f"Upgrade target v{target} is older than current v{current}.",
+                operation="Upgrade Observal CLI",
+                resource="target version",
+                remediation=f"Use `observal self downgrade --version {target}` instead.",
+            )
     except InvalidVersion:
         pass
 
-    # Confirm
+    if output == "json" and not force:
+        fail(
+            ErrorCategory.VALIDATION,
+            "JSON mode cannot prompt before upgrading the CLI.",
+            operation="Upgrade Observal CLI",
+            resource="CLI installation",
+            remediation="Add --force to confirm the upgrade.",
+        )
     if not force:
-        rprint(f"  Current: [dim]v{current}[/dim]")
-        rprint(f"  Target:  [green]v{target}[/green]")
-        rprint(f"  Method:  [dim]{install.method.value} ({install.path})[/dim]")
+        rprint(f"  Current: [dim]v{esc(current)}[/dim]")
+        rprint(f"  Target:  [green]v{esc(target)}[/green]")
+        rprint(f"  Method:  [dim]{esc(install.method.value)} ({esc(install.path)})[/dim]")
         if not typer.confirm("\nProceed with upgrade?"):
             raise typer.Abort()
 
-    # Lock + execute
     try:
         lock = acquire_lock("cli")
-    except UpgradeLockError as e:
-        rprint(f"[red]{e}[/red]")
-        raise typer.Exit(1)
+    except UpgradeLockError as error:
+        fail(
+            ErrorCategory.CONFLICT,
+            "Another CLI version change is already running.",
+            operation="Upgrade Observal CLI",
+            resource="CLI upgrade lock",
+            remediation="Wait for it to finish, then retry.",
+            detail=repr(error),
+        )
     try:
-        _do_install(install, target, direction="upgrade")
+        _do_install(install, target, direction="upgrade", output=output)
     finally:
         release_lock(lock)
+
+    if output == "json":
+        output_json(
+            {
+                "action": "upgrade",
+                "status": "completed",
+                "from_version": current,
+                "to_version": target,
+                "install_method": install.method.value,
+                "path": str(install.path),
+            }
+        )
 
 
 @self_app.command()
 def downgrade(
-    version: str | None = typer.Option(None, "--version", "-v", help="Target version to downgrade to (required)"),
-    list_versions: bool = typer.Option(
-        False, "--list", "-l", help="List all available versions with compatibility status"
-    ),
+    version: str | None = typer.Option(None, "--version", "-v", help="Target version to downgrade to"),
+    list_versions: bool = typer.Option(False, "--list", "-l", help="List available releases"),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
-    """Downgrade the observal CLI to a previous version.
-
-    Downloads and installs a specific older version from GitHub releases.
-
-    Use --list to see all available versions with their publication dates
-    and compatibility status.
+    """Downgrade the Observal CLI to a previous version.
 
     Examples:
-        observal self downgrade --version 0.7.0
-        observal self downgrade --list
-        observal self downgrade --version 0.7.0 --force
+        observal self downgrade --list --output json
+        observal self downgrade --version 2.4.0 --force --output json
     """
     from packaging.version import InvalidVersion, Version
 
     from observal_cli import install_detector, version_check
-    from observal_cli.install_detector import InstallMethod
     from observal_cli.upgrade_lock import UpgradeLockError, acquire_lock, release_lock
 
+    force = _command_value(force)
+    output = _command_value(output)
     current = version_check.get_current_version()
 
+    if list_versions and version:
+        fail(
+            ErrorCategory.VALIDATION,
+            "Choose either --list or --version, not both.",
+            operation="Downgrade Observal CLI",
+            resource="downgrade mode",
+            remediation="Remove one of the conflicting options.",
+        )
     if list_versions:
-        releases = version_check.fetch_all_releases()
+        with _command_progress(output, "Fetching releases..."):
+            releases = version_check.fetch_all_releases()
         if not releases:
-            rprint("[red]Failed to fetch releases from GitHub.[/red]")
-            raise typer.Exit(1)
-
+            fail(
+                ErrorCategory.UNAVAILABLE,
+                "Could not fetch CLI releases from GitHub.",
+                operation="List Observal CLI releases",
+                resource="GitHub releases",
+                remediation="Check network access and retry.",
+            )
+        items = [
+            {
+                **release,
+                "current": str(release.get("version", "")) == current,
+            }
+            for release in releases
+        ]
+        if output == "json":
+            output_json({"current_version": current, "items": items})
+            return
         table = Table(title="Available Versions")
         table.add_column("Version", style="bold")
         table.add_column("Published")
         table.add_column("Status")
-
-        for r in releases:
-            status = ""
-            if r["version"] == current:
-                status = "← current"
-            table.add_row(r["version"], r.get("published_at", "")[:10], status)
-
-        from rich.console import Console
-
-        Console().print(table)
-        raise typer.Exit(0)
+        for release in items:
+            table.add_row(
+                esc(release.get("version", "")),
+                esc(str(release.get("published_at") or "")[:10]),
+                "← current" if release["current"] else "",
+            )
+        console.print(table)
+        return
 
     if not version:
-        rprint("[red]--version is required for downgrade.[/red]")
-        rprint("[dim]Use --list to see available versions.[/dim]")
-        raise typer.Exit(1)
-
+        fail(
+            ErrorCategory.VALIDATION,
+            "A target version is required for downgrade.",
+            operation="Downgrade Observal CLI",
+            resource="target version",
+            remediation="Provide --version or use --list.",
+        )
     try:
         target = Version(version)
     except InvalidVersion:
-        rprint(f"[red]Invalid version: {version}[/red]")
-        raise typer.Exit(1)
-
-    # Enforce version floor - cannot go below 1.0.0
-    if target < Version(version_check.VERSION_FLOOR):
-        rprint(
-            f"[bold red]\u2716 Cannot downgrade below v{version_check.VERSION_FLOOR}.[/bold red]\n"
-            f"  Versioning is not supported on earlier releases.\n"
-            f"  Minimum allowed version: [cyan]v{version_check.VERSION_FLOOR}[/cyan]"
+        fail(
+            ErrorCategory.VALIDATION,
+            f"Invalid target version: {version}.",
+            operation="Downgrade Observal CLI",
+            resource="target version",
+            remediation="Use a release version such as 2.4.0.",
         )
-        raise typer.Exit(1)
 
+    if target < Version(version_check.VERSION_FLOOR):
+        fail(
+            ErrorCategory.VALIDATION,
+            f"Cannot downgrade below v{version_check.VERSION_FLOOR}.",
+            operation="Downgrade Observal CLI",
+            resource="target version",
+            remediation=f"Choose v{version_check.VERSION_FLOOR} or newer.",
+        )
     try:
         if target >= Version(current):
-            rprint(f"[yellow]v{version} is not older than current v{current}.[/yellow]")
-            rprint("[dim]Use: observal self upgrade[/dim]")
-            raise typer.Exit(1)
+            fail(
+                ErrorCategory.VALIDATION,
+                f"Downgrade target v{target} is not older than current v{current}.",
+                operation="Downgrade Observal CLI",
+                resource="target version",
+                remediation="Choose an older release or use `observal self upgrade`.",
+            )
     except InvalidVersion:
         pass
 
     install = install_detector.detect()
-    if install.method in (InstallMethod.HOMEBREW, InstallMethod.SYSTEM_PACKAGE):
-        mgr = install.managed_by or "your package manager"
-        rprint(f"[yellow]Observal is managed by {mgr}.[/yellow]")
-        raise typer.Exit(1)
-
+    _managed_install(install, "Downgrade Observal CLI")
+    if output == "json" and not force:
+        fail(
+            ErrorCategory.VALIDATION,
+            "JSON mode cannot prompt before downgrading the CLI.",
+            operation="Downgrade Observal CLI",
+            resource="CLI installation",
+            remediation="Add --force to confirm the downgrade.",
+        )
     if not force:
-        rprint(f"  Current: [dim]v{current}[/dim]")
-        rprint(f"  Target:  [yellow]v{version}[/yellow]")
+        rprint(f"  Current: [dim]v{esc(current)}[/dim]")
+        rprint(f"  Target:  [yellow]v{esc(target)}[/yellow]")
         if not typer.confirm("\nProceed with downgrade?"):
             raise typer.Abort()
 
     try:
         lock = acquire_lock("cli")
-    except UpgradeLockError as e:
-        rprint(f"[red]{e}[/red]")
-        raise typer.Exit(1)
+    except UpgradeLockError as error:
+        fail(
+            ErrorCategory.CONFLICT,
+            "Another CLI version change is already running.",
+            operation="Downgrade Observal CLI",
+            resource="CLI upgrade lock",
+            remediation="Wait for it to finish, then retry.",
+            detail=repr(error),
+        )
 
-    # Releases before v1.10.4 silently auto-updated on startup. Pin their
-    # legacy setting before installation so the next command cannot undo an
-    # intentional downgrade. Restore the prior value if installation fails.
     pin_legacy_auto_update = target < Version("1.10.4")
     previous_auto_update = None
     try:
         if pin_legacy_auto_update:
             previous_auto_update = config.load().get("auto_update", True)
             config.save({"auto_update": False})
-        _do_install(install, version, direction="downgrade")
-    except BaseException:
+        _do_install(install, str(target), direction="downgrade", output=output)
+    except BaseException as install_error:
         if pin_legacy_auto_update:
             try:
                 config.save({"auto_update": previous_auto_update})
             except (Exception, SystemExit) as restore_error:
-                rprint(f"[yellow]Warning: could not restore auto-update setting: {restore_error}[/yellow]")
+                fail(
+                    ErrorCategory.UNAVAILABLE,
+                    "CLI downgrade failed and the automatic-update setting could not be restored.",
+                    operation="Downgrade Observal CLI",
+                    resource="automatic-update setting",
+                    remediation="Restore auto_update to its previous value, then inspect the failed installation.",
+                    detail=f"install={install_error!r}; restore={restore_error!r}",
+                )
         raise
     finally:
         release_lock(lock)
 
-    if pin_legacy_auto_update:
+    if output == "json":
+        output_json(
+            {
+                "action": "downgrade",
+                "status": "completed",
+                "from_version": current,
+                "to_version": str(target),
+                "install_method": install.method.value,
+                "path": str(install.path),
+                "automatic_updates_disabled": pin_legacy_auto_update,
+            }
+        )
+    elif pin_legacy_auto_update:
         rprint("[dim]Automatic updates disabled to keep this legacy version pinned.[/dim]")
 
 
 @self_app.command()
-def rollback():
-    """Restore the CLI to the version before the last upgrade/downgrade.
-
-    Copies the backed-up binary (saved during the previous upgrade) back
-    over the current one. Only available for binary installs.
+def rollback(
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
+):
+    """Restore the CLI binary saved before the last version change.
 
     Examples:
         observal self rollback
+        observal self rollback --force --output json
     """
-    from observal_cli import install_detector
-    from observal_cli.install_detector import InstallMethod
-
-    install = install_detector.detect()
-    backup = config.CONFIG_DIR / "bin" / "observal.prev"
-
-    if not backup.exists():
-        rprint("[red]No backup found. Nothing to rollback to.[/red]")
-        raise typer.Exit(1)
-
-    if install.method != InstallMethod.BINARY:
-        rprint("[yellow]Rollback only supported for binary installs.[/yellow]")
-        rprint(f"[dim]For {install.managed_by}: install the previous version explicitly.[/dim]")
-        raise typer.Exit(1)
-
     import os
     import shutil
 
-    target_path = install.path
-    rprint(f"  Restore: {backup} → {target_path}")
-    if not typer.confirm("Proceed?"):
-        raise typer.Abort()
+    from observal_cli import install_detector
+    from observal_cli.install_detector import InstallMethod
+    from observal_cli.upgrade_lock import UpgradeLockError, acquire_lock, release_lock
 
-    shutil.copy2(str(backup), str(target_path))
-    os.chmod(str(target_path), 0o755)
-    rprint("[green]✓ Rolled back to previous version.[/green]")
+    force = _command_value(force)
+    output = _command_value(output)
+    install = install_detector.detect()
+    backup = config.CONFIG_DIR / "bin" / "observal.prev"
+    if not backup.is_file():
+        fail(
+            ErrorCategory.NOT_FOUND,
+            "No CLI rollback backup was found.",
+            operation="Rollback Observal CLI",
+            resource=str(backup),
+            remediation="Run a successful binary upgrade or downgrade before rollback.",
+        )
+    if install.method != InstallMethod.BINARY:
+        fail(
+            ErrorCategory.CONFLICT,
+            "Rollback is only supported for standalone binary installations.",
+            operation="Rollback Observal CLI",
+            resource="CLI installation",
+            remediation="Install the previous version with the current package manager.",
+        )
+    if output == "json" and not force:
+        fail(
+            ErrorCategory.VALIDATION,
+            "JSON mode cannot prompt before rolling back the CLI.",
+            operation="Rollback Observal CLI",
+            resource="CLI installation",
+            remediation="Add --force to confirm rollback.",
+        )
+
+    target = Path(install.path)
+    if not force:
+        rprint(f"  Restore: {esc(backup)} → {esc(target)}")
+        if not typer.confirm("Proceed?"):
+            raise typer.Abort()
+
+    try:
+        lock = acquire_lock("cli")
+    except UpgradeLockError as error:
+        fail(
+            ErrorCategory.CONFLICT,
+            "Another CLI version change is already running.",
+            operation="Rollback Observal CLI",
+            resource="CLI upgrade lock",
+            remediation="Wait for it to finish, then retry.",
+            detail=repr(error),
+        )
+
+    temporary: Path | None = None
+    try:
+        with NamedTemporaryFile(dir=target.parent, prefix=".observal-rollback-", delete=False) as file:
+            temporary = Path(file.name)
+        shutil.copy2(backup, temporary)
+        os.chmod(temporary, 0o755)
+        temporary.replace(target)
+    except OSError as error:
+        fail(
+            ErrorCategory.UNAVAILABLE,
+            "Could not restore the previous CLI binary.",
+            operation="Rollback Observal CLI",
+            resource=str(target),
+            remediation="Check filesystem permissions and retry.",
+            detail=repr(error),
+        )
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+        release_lock(lock)
+
+    result = {"action": "rollback", "status": "completed", "backup": str(backup), "path": str(target)}
+    if output == "json":
+        output_json(result)
+    else:
+        rprint("[green]✓ Rolled back to previous version.[/green]")
 
 
 @self_app.command()
-def status():
-    """Show current CLI version, install method, and update availability.
-
-    Checks GitHub for the latest release and shows whether an update is
-    available. Also displays the server's minimum CLI version requirement
-    if connected.
+def status(
+    output: OutputMode = typer.Option("table", "--output", "-o"),
+):
+    """Show the CLI version, install method, and update availability.
 
     Examples:
         observal self status
+        observal self status --output json
     """
-    from observal_cli import version_check
+    from observal_cli import install_detector, version_check
 
+    output = _command_value(output)
     current = version_check.get_current_version()
-    rprint(f"  Version:  [bold]v{current}[/bold]")
-
-    from observal_cli import install_detector
-
     install = install_detector.detect()
-    rprint(f"  Install:  [dim]{install.method.value} ({install.path})[/dim]")
+    with _command_progress(output, "Checking for updates..."):
+        release = version_check._fetch_from_github()
 
-    # Always check (bypass OBSERVAL_NO_UPDATE_CHECK for explicit status command)
-    with spinner("Checking for updates..."):
-        rel = version_check._fetch_from_github()
+    latest = release.get("latest_version") if release else None
+    update_available = version_check._is_newer(latest, current) if latest else None
+    result = {
+        "current_version": current,
+        "install_method": install.method.value,
+        "path": str(install.path),
+        "writable": install.writable,
+        "managed_by": install.managed_by,
+        "github_available": release is not None,
+        "latest_version": latest,
+        "update_available": update_available,
+    }
+    if output == "json":
+        output_json(result)
+        return
 
-    if rel:
-        latest = rel["latest_version"]
-        if version_check._is_newer(latest, current):
-            rprint(f"  Latest:   [green]v{latest}[/green] (update available)")
+    rprint(f"  Version:  [bold]v{esc(current)}[/bold]")
+    rprint(f"  Install:  [dim]{esc(install.method.value)} ({esc(install.path)})[/dim]")
+    if latest:
+        suffix = "update available" if update_available else "up to date"
+        rprint(f"  Latest:   [green]v{esc(latest)}[/green] ({suffix})")
+        if update_available:
             rprint("\n  Run: [bold]observal self upgrade[/bold]")
-        else:
-            rprint(f"  Latest:   [green]v{latest}[/green] (up to date)")
     else:
         rprint("  Latest:   [dim]could not reach GitHub[/dim]")
 

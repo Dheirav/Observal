@@ -179,7 +179,6 @@ from observal_cli.cmd_skill import skill_app
 from observal_cli.cmd_support import support_app
 from observal_cli.cmd_team import team_app
 from observal_cli.cmd_transfer import add_transfer_owner_command
-from observal_cli.cmd_uninstall import register_uninstall
 
 # ═══════════════════════════════════════════════════════════
 # registry_app: Component registry parent group
@@ -254,8 +253,6 @@ ops_app.add_typer(logs_app, name="logs")
 ops_app.add_typer(insights_app, name="insights")
 # support → doctor support (diagnostic bundles, related to doctor troubleshooting)
 doctor_app.add_typer(support_app, name="support")
-# uninstall → self uninstall (CLI lifecycle alongside upgrade/downgrade/rollback)
-register_uninstall(self_app)
 # migrate → server migrate (operator infra tooling)
 
 # Reconcile (push local sessions to server)

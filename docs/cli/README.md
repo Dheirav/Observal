@@ -36,7 +36,6 @@ Complete reference for the `observal` CLI. Every subcommand has its own page; th
 | [`observal registry prompt`](prompt.md)                                                    | Manage reusable prompts in the registry                                               |
 | [`observal server`](server.md)                                                             | Manage the embedded server (start, stop, upgrade, rollback)                           |
 | [`observal registry skill`](skill.md)                                                      | Submit, browse, and install portable skill packages                                   |
-| [`observal uninstall`](uninstall.md)                                                       | Completely remove Observal from the system                                            |
 
 ## Global options
 
