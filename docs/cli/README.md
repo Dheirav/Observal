@@ -30,7 +30,7 @@ Complete reference for the `observal` CLI. Every subcommand has its own page; th
 | [`observal doctor`](doctor.md)                                                             | Diagnose harness compatibility; `doctor patch` applies instrumentation                |
 | [`observal migrate`](https://github.com/Observal/Observal/blob/main/docs/cli/migrate.md) | Export/import PostgreSQL registry (shallow copy) and ClickHouse telemetry (deep copy) |
 | [`observal self`](self.md)                                                                 | Upgrade or downgrade the CLI                                                          |
-| [`observal prompt`](prompt.md)                                                             | Manage reusable prompts in the registry                                               |
+| [`observal registry prompt`](prompt.md)                                                    | Manage reusable prompts in the registry                                               |
 | [`observal server`](server.md)                                                             | Manage the embedded server (start, stop, upgrade, rollback)                           |
 | [`observal skill`](skill.md)                                                               | Submit, browse, and install portable skill packages                                   |
 | [`observal uninstall`](uninstall.md)                                                       | Completely remove Observal from the system                                            |

@@ -13,16 +13,19 @@ import json as _json
 from contextlib import nullcontext
 
 import typer
+from packaging.version import InvalidVersion, Version
 from rich import print as rprint
 from rich.table import Table
 
 from observal_cli import client, config
 from observal_cli.constants import VALID_PROMPT_CATEGORIES
+from observal_cli.errors import ErrorCategory, fail
 from observal_cli.prompts import select_one, text_input
 from observal_cli.render import (
     OutputMode,
     console,
     display_name,
+    esc,
     handle,
     kv_panel,
     output_json,
@@ -60,6 +63,7 @@ def prompt_submit(
     submit_draft: str | None = typer.Option(None, "--submit", help="Submit a draft for review (prompt ID)"),
     team: str | None = typer.Option(None, "--team", help="Teamspace UUID or handle"),
     visibility: str | None = typer.Option(None, "--visibility", help="Visibility: public or team"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """Submit a new prompt template for review.
 
@@ -72,19 +76,28 @@ def prompt_submit(
     Examples:
         observal registry prompt submit --from-file prompt.json
         observal registry prompt submit --draft
-        observal registry prompt submit --submit abc123
+        observal registry prompt submit --submit abc123 --output json
     """
-    rprint("[dim]Note: Only submit components you created (private) or are the point-of-contact for (external).[/dim]")
+    human_output = output != "json"
+    if human_output:
+        rprint("[dim]Note: Only submit components you created or represent.[/dim]")
     if draft and submit_draft:
-        rprint(
-            "[red]Cannot use --draft and --submit together.[/red] Use --draft to save a new draft, or --submit to submit an existing draft."
+        fail(
+            ErrorCategory.VALIDATION,
+            "Draft creation and draft submission cannot be requested together.",
+            operation="Submit prompt",
+            resource="submit options",
+            remediation="Choose either draft creation or draft submission and retry.",
         )
-        raise typer.Exit(code=1)
     if submit_draft:
         resolved = client.resolve_registry_reference("prompt", submit_draft)
-        with spinner("Submitting draft for review..."):
+        submit_context = nullcontext() if output == "json" else spinner("Submitting draft for review...")
+        with submit_context:
             result = client.post(f"/api/v1/prompts/{resolved}/submit")
-        rprint(f"[green]✓ Draft submitted for review![/green] ID: [bold]{result['id']}[/bold]")
+        if output == "json":
+            output_json(result)
+        else:
+            rprint(f"[green]✓ Draft submitted for review![/green] ID: [bold]{esc(result['id'])}[/bold]")
         return
 
     flag_mode = any(x is not None for x in (name, version, description, category, template))
@@ -96,6 +109,14 @@ def prompt_submit(
             if not payload.get("owner"):
                 payload["owner"] = config.load().get("username", "")
         except _json.JSONDecodeError:
+            if output == "json" and not flag_mode:
+                fail(
+                    ErrorCategory.VALIDATION,
+                    "JSON mode requires prompt metadata for a template file.",
+                    operation="Submit prompt",
+                    resource=from_file,
+                    remediation="Provide name, description, and template metadata options.",
+                )
             if flag_mode:
                 payload = {
                     "name": name,
@@ -124,6 +145,14 @@ def prompt_submit(
             "template": template,
         }
     else:
+        if output == "json":
+            fail(
+                ErrorCategory.VALIDATION,
+                "JSON mode requires explicit prompt fields.",
+                operation="Submit prompt",
+                resource="submit options",
+                remediation="Provide name, description, category, and template options.",
+            )
         payload = {
             "name": text_input("Prompt name"),
             "version": text_input("Version", default="1.0.0"),
@@ -132,24 +161,45 @@ def prompt_submit(
             "category": select_one("Category", VALID_PROMPT_CATEGORIES),
             "template": text_input("Template"),
         }
-    if flag_mode:
-        if not (payload.get("name") and payload.get("description") and payload.get("template")):
-            rprint("[red]Error:[/red] --name, --description, and --template or --from-file are required")
-            raise typer.Exit(1)
-        if payload.get("category") not in VALID_PROMPT_CATEGORIES:
-            rprint(f"[red]Error:[/red] Invalid category: {payload.get('category')}")
-            raise typer.Exit(1)
+    if flag_mode and not (payload.get("name") and payload.get("description") and payload.get("template")):
+        fail(
+            ErrorCategory.VALIDATION,
+            "Prompt name, description, and template are required without prompts.",
+            operation="Submit prompt",
+            resource="prompt payload",
+            remediation="Provide the required fields and retry.",
+        )
+    if payload.get("category") not in VALID_PROMPT_CATEGORIES:
+        fail(
+            ErrorCategory.VALIDATION,
+            f"Unknown prompt category: {payload.get('category')}.",
+            operation="Submit prompt",
+            resource="category",
+            remediation=f"Choose one of: {', '.join(VALID_PROMPT_CATEGORIES)}.",
+        )
+    try:
+        Version(str(payload.get("version") or ""))
+    except InvalidVersion as error:
+        fail(
+            ErrorCategory.VALIDATION,
+            "The prompt version is invalid.",
+            operation="Submit prompt",
+            resource=str(payload.get("version") or ""),
+            remediation="Provide a valid version and retry.",
+            detail=repr(error),
+        )
 
     client.add_publish_target(payload, team, visibility)
-    if draft:
-        with spinner("Saving draft..."):
-            result = client.post("/api/v1/prompts/draft", payload)
-        rprint(f"[green]✓ Draft saved![/green] ID: [bold]{result['id']}[/bold]")
-    else:
-        with spinner("Submitting prompt..."):
-            result = client.post("/api/v1/prompts/submit", payload)
-        rprint(f"[green]✓ Prompt submitted![/green] ID: [bold]{result['id']}[/bold]")
-    rprint(f"  Install: [cyan]observal registry prompt render {client.canonical_name(result)}[/cyan]")
+    submit_context = nullcontext() if output == "json" else spinner("Saving prompt...")
+    with submit_context:
+        endpoint = "/api/v1/prompts/draft" if draft else "/api/v1/prompts/submit"
+        result = client.post(endpoint, payload)
+    if output == "json":
+        output_json(result)
+        return
+    message = "Draft saved" if draft else "Prompt submitted"
+    rprint(f"[green]✓ {message}![/green] ID: [bold]{esc(result['id'])}[/bold]")
+    rprint(f"  Render: [cyan]observal registry prompt render {esc(client.canonical_name(result))}[/cyan]")
 
 
 @prompt_app.command(name="list")
@@ -171,6 +221,14 @@ def prompt_list(
         observal registry prompt list --category coding
         observal registry prompt list --search "refactor" --output json
     """
+    if category and category not in VALID_PROMPT_CATEGORIES:
+        fail(
+            ErrorCategory.VALIDATION,
+            f"Unknown prompt category: {category}.",
+            operation="List prompts",
+            resource="category filter",
+            remediation=f"Choose one of: {', '.join(VALID_PROMPT_CATEGORIES)}.",
+        )
     params = {}
     if category:
         params["category"] = category
@@ -204,11 +262,11 @@ def prompt_list(
     for i, item in enumerate(data, 1):
         table.add_row(
             str(i),
-            display_name(item),
-            item.get("version", ""),
-            handle(item),
+            esc(display_name(item)),
+            esc(item.get("version", "")),
+            esc(handle(item)),
             status_badge(item.get("status", "")),
-            str(item["id"])[:8] + "…",
+            esc(str(item["id"])[:8] + "…"),
         )
     console.print(table)
 
@@ -250,11 +308,11 @@ def prompt_my(
     for i, item in enumerate(data, 1):
         table.add_row(
             str(i),
-            display_name(item),
-            item.get("version", ""),
-            handle(item),
+            esc(display_name(item)),
+            esc(item.get("version", "")),
+            esc(handle(item)),
             status_badge(item.get("status", "")),
-            str(item["id"])[:8] + "…",
+            esc(str(item["id"])[:8] + "…"),
         )
     console.print(table)
 
@@ -283,26 +341,27 @@ def prompt_show(
         return
     console.print(
         kv_panel(
-            f"{display_name(item)} v{item.get('version', '?')}",
+            f"{esc(display_name(item))} v{esc(item.get('version', '?'))}",
             [
                 ("Status", status_badge(item.get("status", ""))),
-                ("Category", item.get("category", "N/A")),
-                ("Namespace", handle(item) or "N/A"),
-                ("Description", item.get("description", "")),
-                ("Created", relative_time(item.get("created_at"))),
-                ("ID", f"[dim]{item['id']}[/dim]"),
+                ("Category", esc(item.get("category", "N/A"))),
+                ("Namespace", esc(handle(item) or "N/A")),
+                ("Description", esc(item.get("description", ""))),
+                ("Created", esc(relative_time(item.get("created_at")))),
+                ("ID", f"[dim]{esc(item['id'])}[/dim]"),
             ],
             border_style="cyan",
         )
     )
     if item.get("template"):
-        rprint(f"\n[bold]Template:[/bold]\n[dim]{item['template']}[/dim]")
+        rprint(f"\n[bold]Template:[/bold]\n[dim]{esc(item['template'])}[/dim]")
 
 
 @prompt_app.command(name="render")
 def prompt_render(
     prompt_id: str = typer.Argument(..., help="Prompt ID, name, row number, or @alias"),
     var: list[str] = typer.Option([], "--var", "-v", help="Variable as key=value"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """Render a prompt template with variable substitution.
 
@@ -312,16 +371,28 @@ def prompt_render(
 
     Examples:
         observal registry prompt render my-prompt --var lang=python
-        observal registry prompt render @tpl --var file=main.py --var task=refactor
+        observal registry prompt render @tpl --var file=main.py --var task=refactor --output json
     """
     resolved = client.resolve_registry_reference("prompt", prompt_id)
     variables = {}
-    for v in var:
-        k, _, val = v.partition("=")
-        variables[k] = val.strip("\"'")
-    with spinner("Rendering prompt..."):
+    for value in var:
+        key, separator, raw = value.partition("=")
+        if not separator or not key.strip():
+            fail(
+                ErrorCategory.VALIDATION,
+                "Prompt variables must use key=value syntax.",
+                operation="Render prompt",
+                resource=value,
+                remediation="Provide each variable as a non-empty key and value.",
+            )
+        variables[key.strip()] = raw.strip("\"'")
+    render_context = nullcontext() if output == "json" else spinner("Rendering prompt...")
+    with render_context:
         result = client.post(f"/api/v1/prompts/{resolved}/render", {"variables": variables})
-    rprint(result.get("rendered", result))
+    if output == "json":
+        output_json(result)
+    else:
+        rprint(esc(result.get("rendered", result)))
 
 
 @prompt_app.command(name="edit")
@@ -333,6 +404,7 @@ def prompt_edit(
     version: str | None = typer.Option(None, "--version", "-v", help="New version string"),
     category: str | None = typer.Option(None, "--category", "-c", help="New category"),
     template: str | None = typer.Option(None, "--template", "-t", help="New template text"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """Edit a draft, rejected, or pending prompt submission.
 
@@ -343,19 +415,39 @@ def prompt_edit(
     Examples:
         observal registry prompt edit my-prompt --description "Updated desc"
         observal registry prompt edit abc123 --from-file updates.json
-        observal registry prompt edit @tpl --template "New template: {{var}}"
+        observal registry prompt edit @tpl --template "New template: {{var}}" --output json
     """
     resolved = client.resolve_registry_reference("prompt", prompt_id)
     if from_file:
         try:
             with open(from_file) as f:
                 updates = _json.load(f)
-        except _json.JSONDecodeError as e:
-            rprint(f"[red]Invalid JSON in {from_file}:[/red] {e}")
-            raise typer.Exit(code=1)
-        except FileNotFoundError:
-            rprint(f"[red]File not found:[/red] {from_file}")
-            raise typer.Exit(code=1)
+        except _json.JSONDecodeError as error:
+            fail(
+                ErrorCategory.VALIDATION,
+                "The prompt update file is not valid JSON.",
+                operation="Edit prompt",
+                resource=from_file,
+                remediation="Correct the JSON and retry.",
+                detail=repr(error),
+            )
+        except FileNotFoundError as error:
+            fail(
+                ErrorCategory.NOT_FOUND,
+                "The prompt update file was not found.",
+                operation="Edit prompt",
+                resource=from_file,
+                remediation="Provide an existing update file and retry.",
+                detail=repr(error),
+            )
+        if not isinstance(updates, dict):
+            fail(
+                ErrorCategory.VALIDATION,
+                "The prompt update file must contain a JSON object.",
+                operation="Edit prompt",
+                resource=from_file,
+                remediation="Replace the file contents with a JSON object and retry.",
+            )
     else:
         updates = {}
         if name is not None:
@@ -370,23 +462,41 @@ def prompt_edit(
             updates["template"] = template
 
     if not updates:
-        rprint("[yellow]No changes specified.[/yellow] Use --from-file or field options (--name, --description, etc.)")
-        raise typer.Exit(code=1)
-
-    try:
-        client.post(f"/api/v1/prompts/{resolved}/start-edit")
-    except Exception as exc:
-        if "409" in str(exc) or "currently being edited" in str(exc):
-            rprint(f"[red]✗ Cannot edit:[/red] {exc}")
-            raise typer.Exit(code=1)
-    try:
-        with spinner("Saving changes..."):
-            result = client.put(f"/api/v1/prompts/{resolved}/draft", updates)
-        rprint(f"[green]✓ Updated {result['name']}[/green] (status: {result.get('status', 'unknown')})")
-    except Exception as exc:
+        fail(
+            ErrorCategory.VALIDATION,
+            "No prompt changes were provided.",
+            operation="Edit prompt",
+            resource=prompt_id,
+            remediation="Provide an update file or one or more field options.",
+        )
+    updated_category = updates.get("category")
+    if updated_category is not None and updated_category not in VALID_PROMPT_CATEGORIES:
+        fail(
+            ErrorCategory.VALIDATION,
+            f"Unknown prompt category: {updated_category}.",
+            operation="Edit prompt",
+            resource="category",
+            remediation=f"Choose one of: {', '.join(VALID_PROMPT_CATEGORIES)}.",
+        )
+    updated_version = updates.get("version")
+    if updated_version is not None:
         try:
-            client.post(f"/api/v1/prompts/{resolved}/cancel-edit")
-        except Exception:
-            pass
-        rprint(f"[red]Failed to update:[/red] {exc}")
-        raise typer.Exit(code=1)
+            Version(str(updated_version))
+        except InvalidVersion as error:
+            fail(
+                ErrorCategory.VALIDATION,
+                "The prompt version is invalid.",
+                operation="Edit prompt",
+                resource=str(updated_version),
+                remediation="Provide a valid version and retry.",
+                detail=repr(error),
+            )
+
+    client.post(f"/api/v1/prompts/{resolved}/start-edit")
+    save_context = nullcontext() if output == "json" else spinner("Saving changes...")
+    with save_context:
+        result = client.put(f"/api/v1/prompts/{resolved}/draft", updates)
+    if output == "json":
+        output_json(result)
+    else:
+        rprint(f"[green]✓ Updated {esc(result['name'])}[/green] (status: {esc(result.get('status', 'unknown'))})")

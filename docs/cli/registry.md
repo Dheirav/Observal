@@ -559,6 +559,7 @@ observal registry prompt submit [OPTIONS]
 | `--from-file` | `-f` | Create from JSON file, or read template from a text file |
 | `--draft` | | Save as draft instead of submitting for review |
 | `--submit` | | Submit a draft for review (prompt ID) |
+| `--output` | `-o` | Output format: `table` or `json` |
 
 If `--from-file` points to a non-JSON file, its content is used as the template and you are prompted for metadata interactively.
 
@@ -625,26 +626,6 @@ observal registry prompt show @refactor-prompt --output json
 
 ---
 
-### `observal registry prompt install`
-
-Generate harness install configuration for a prompt.
-
-```bash
-observal registry prompt install <id-or-name> --harness <harness> [--raw]
-```
-
-| Option | Short | Description |
-| --- | --- | --- |
-| `--harness` | `-i` | Target harness (required) |
-| `--raw` | | Output bare JSON only, suitable for piping |
-
-```bash
-observal registry prompt install my-prompt --harness claude-code
-observal registry prompt install @tpl --harness cursor --raw > prompt.json
-```
-
----
-
 ### `observal registry prompt render`
 
 Render a prompt template with variable substitution. Sends key=value pairs to the server, which substitutes them into the template and returns the rendered output.
@@ -656,6 +637,7 @@ observal registry prompt render <id-or-name> --var key=value [--var key2=value2 
 | Option | Short | Description |
 | --- | --- | --- |
 | `--var` | `-v` | Variable as `key=value` (repeatable) |
+| `--output` | `-o` | Output format: `table` or `json` |
 
 ```bash
 observal registry prompt render my-prompt --var lang=python
@@ -680,6 +662,7 @@ observal registry prompt edit <id-or-name> [OPTIONS]
 | `--version` | `-v` | New version string |
 | `--category` | `-c` | New category |
 | `--template` | `-t` | New template text |
+| `--output` | `-o` | Output format: `table` or `json` |
 
 ```bash
 observal registry prompt edit my-prompt --description "Updated desc"

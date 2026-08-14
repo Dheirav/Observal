@@ -41,7 +41,7 @@
 * [observal admin](cli/admin.md)
 * [observal doctor](cli/doctor.md)
 * [observal self](cli/self.md)
-* [observal prompt](cli/prompt.md)
+* [observal registry prompt](cli/prompt.md)
 * [observal server](cli/server.md)
 * [observal skill](cli/skill.md)
 * [observal uninstall](cli/uninstall.md)

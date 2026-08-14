@@ -128,8 +128,8 @@ Optional: `--source-url URL --source-ref main`, `--requires dep1 --requires dep2
 ### Prompt
 
 ```bash
-observal registry prompt submit --name frontend-brief --description 'Frontend design brief' --category general --template 'Design {{component}} accessibly'
-observal registry prompt submit --from-file prompt.json
+observal registry prompt submit --name frontend-brief --description 'Frontend design brief' --category general --template 'Design {{component}} accessibly' --output json
+observal registry prompt submit --from-file prompt.json --output json
 ```
 
 ### Sandbox
@@ -174,7 +174,7 @@ observal registry mcp edit NAME --from-file updates.json --output json
 observal registry mcp edit NAME --name new-name --description 'New desc' --output json
 observal registry skill edit NAME --from-file updates.json --output json
 observal registry hook edit NAME --version 1.2.0 --event Stop --output json
-observal registry prompt edit NAME --template 'New template body'
+observal registry prompt edit NAME --template 'New template body' --output json
 observal registry sandbox edit NAME --image python:3.12-slim
 ```
 
