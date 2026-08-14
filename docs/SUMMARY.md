@@ -34,7 +34,7 @@
 * [observal scan](cli/scan.md)
 * [observal agent pull](cli/pull.md)
 * [observal registry](cli/registry.md)
-* [observal component](cli/component.md)
+* [observal registry version](cli/component.md)
 * [observal registry models](cli/models.md)
 * [observal agent](cli/agent.md)
 * [observal ops](cli/ops.md)
