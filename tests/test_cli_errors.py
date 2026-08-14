@@ -431,6 +431,21 @@ def test_json_error_mode_distinguishes_format_from_file_destination():
     assert _uses_json_output(root, ("doctor", "support", "bundle", "--file", "json")) is False
 
 
+def test_json_error_mode_supports_typer_choice_without_click_inheritance():
+    from typer.main import get_command
+
+    root = get_command(app)
+    output = next(
+        parameter for parameter in root.commands["auth"].commands["login"].params if parameter.name == "output"
+    )
+    original = output.type
+    output.type = SimpleNamespace(choices=("table", "json"))
+    try:
+        assert _uses_json_output(root, ("auth", "login", "--output", "json")) is True
+    finally:
+        output.type = original
+
+
 def test_root_boundary_emits_json_usage_error_to_stderr():
     result = CliRunner().invoke(app, ["agent", "show", "--output", "json"])
 

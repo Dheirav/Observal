@@ -266,6 +266,7 @@ def login(
 ):
     """Connect to Observal.
 
+    Human mode asks for the server URL; leave it blank for http://localhost.
     On a fresh server, creates the first admin account. On an initialized
     server, authenticates with credentials or browser SSO. Set
     OBSERVAL_PASSWORD or OBSERVAL_PASSWORD_FILE to avoid exposing a password
@@ -289,48 +290,81 @@ def login(
         migrate_lockfile_v1(str(previous_server))
 
     if server:
-        server_url = server
-    elif stored.get("server_url"):
-        server_url = str(stored["server_url"])
+        server_url = server.rstrip("/")
     elif json_mode:
-        server_url = "http://localhost:80"
+        server_url = str(stored.get("server_url") or "http://localhost:80").rstrip("/")
     else:
-        server_url = text_input("Server URL", default="") or "http://localhost:80"
-    server_url = server_url.rstrip("/")
-    resource = f"server {server_url}"
+        server_url = (
+            text_input("Server URL (leave blank for http://localhost)", default="") or "http://localhost"
+        ).rstrip("/")
 
-    try:
-        with nullcontext() if json_mode else spinner("Connecting..."):
-            response = httpx.get(f"{server_url}/health", timeout=10)
-        _raise_for_status(
-            response,
-            path="/health",
-            operation="Check server before login",
-            resource=resource,
-        )
-        health_data = response.json()
-    except CliError:
-        raise
-    except httpx.TransportError as error:
-        _fail_transport(error, operation="Check server before login", resource=resource)
-    except (ValueError, TypeError, AttributeError) as error:
-        fail(
-            ErrorCategory.UNEXPECTED,
-            "The server returned an invalid health response.",
-            operation="Check server before login",
-            resource=resource,
-            remediation="Check server health and version compatibility, then retry.",
-            detail=repr(error),
-        )
-    except Exception as error:
-        fail(
-            ErrorCategory.UNEXPECTED,
-            "The server health check failed unexpectedly.",
-            operation="Check server before login",
-            resource=resource,
-            remediation="Retry with debug output and inspect server health if the failure persists.",
-            detail=repr(error),
-        )
+    candidates = [server_url]
+    parsed_server = urlparse(server_url)
+    if (
+        not server
+        and parsed_server.hostname in {"localhost", "127.0.0.1", "::1"}
+        and parsed_server.port
+        not in {
+            None,
+            80,
+            443,
+        }
+    ):
+        fallback_host = f"[{parsed_server.hostname}]" if ":" in parsed_server.hostname else parsed_server.hostname
+        candidates.append(f"{parsed_server.scheme or 'http'}://{fallback_host}")
+
+    last_transport_error: httpx.TransportError | None = None
+    with nullcontext() if json_mode else spinner("Connecting..."):
+        for candidate in candidates:
+            resource = f"server {candidate}"
+            try:
+                response = httpx.get(f"{candidate}/health", timeout=10)
+            except httpx.TransportError as error:
+                last_transport_error = error
+                continue
+            except Exception as error:
+                fail(
+                    ErrorCategory.UNEXPECTED,
+                    "The server health check failed unexpectedly.",
+                    operation="Check server before login",
+                    resource=resource,
+                    remediation="Retry with debug output and inspect server health if the failure persists.",
+                    detail=repr(error),
+                )
+            _raise_for_status(
+                response,
+                path="/health",
+                operation="Check server before login",
+                resource=resource,
+            )
+            try:
+                health_data = response.json()
+            except (ValueError, TypeError, AttributeError) as error:
+                fail(
+                    ErrorCategory.UNEXPECTED,
+                    "The server returned an invalid health response.",
+                    operation="Check server before login",
+                    resource=resource,
+                    remediation="Check server health and version compatibility, then retry.",
+                    detail=repr(error),
+                )
+            if not isinstance(health_data, dict):
+                fail(
+                    ErrorCategory.UNEXPECTED,
+                    "The server returned an invalid health response.",
+                    operation="Check server before login",
+                    resource=resource,
+                    remediation="Check server health and version compatibility, then retry.",
+                )
+            server_url = candidate
+            break
+        else:
+            assert last_transport_error is not None
+            _fail_transport(
+                last_transport_error,
+                operation="Check server before login",
+                resource=f"server {candidates[-1]}",
+            )
 
     _ensure_cli_matches_server(server_url)
     initialized = health_data.get("initialized", True)

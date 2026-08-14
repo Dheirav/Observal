@@ -26,7 +26,7 @@ observal auth login --sso
 
 Login accepts `server`, `email`, `password`, `name`, `sso`, `saml`, `output`, and `no-setup` options. Prefer `OBSERVAL_PASSWORD` or `OBSERVAL_PASSWORD_FILE` over the password option so the secret does not enter shell history or process arguments.
 
-On a fresh server, provide email, name, and a password to create the first administrator. Human mode prompts for missing values. JSON mode never prompts and requires complete inputs.
+Human login always asks for the server URL unless `--server` is supplied; leave the prompt blank to use `http://localhost`. On a fresh server, provide email, name, and a password to create the first administrator. JSON mode never prompts, uses the configured server or local default, and requires complete credential inputs.
 
 Successful human login installs the bundled skills, creates the initial layer snapshot, and runs doctor. Select `no-setup` to authenticate without those side effects. JSON mode always skips setup.
 

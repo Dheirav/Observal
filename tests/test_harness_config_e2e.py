@@ -641,8 +641,13 @@ def _patch_config():
 
 @pytest.fixture(autouse=True)
 def isolated_lockfile(tmp_path, monkeypatch):
-    monkeypatch.setattr("observal_cli.lockfile.LOCKFILE_PATH", tmp_path / ".observal/lockfile.json")
-    monkeypatch.setattr("observal_cli.lockfile._LOCKFILE_LOCK", tmp_path / ".observal/lockfile.lock")
+    state = tmp_path / ".observal"
+    monkeypatch.setattr("observal_cli.lockfile.LOCKFILE_PATH", state / "lockfile.json")
+    monkeypatch.setattr("observal_cli.lockfile._LOCKFILE_LOCK", state / "lockfile.lock")
+    monkeypatch.setattr("observal_cli.config.CONFIG_DIR", state)
+    monkeypatch.setattr("observal_cli.config.CONFIG_FILE", state / "config.json")
+    monkeypatch.setattr("observal_cli.config.ALIASES_FILE", state / "aliases.json")
+    monkeypatch.setattr("observal_cli.config.LAST_RESULTS_FILE", state / "last_results.json")
 
 
 def _patch_post(return_value):

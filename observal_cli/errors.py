@@ -228,8 +228,9 @@ def _resolve_command(command: click.Command, args: tuple[str, ...]) -> tuple[cli
     path = [command.name or "observal"]
     current = command
     for value in args:
-        if isinstance(current, click.Group) and value in current.commands:
-            current = current.commands[value]
+        commands = getattr(current, "commands", {})
+        if value in commands:
+            current = commands[value]
             path.append(value)
     return current, " ".join(path)
 
@@ -242,8 +243,7 @@ def _uses_json_output(command: click.Command, args: tuple[str, ...]) -> bool:
     resolved, _path = _resolve_command(command, args)
     has_format_option = any(
         param.name == "output"
-        and isinstance(param.type, click.Choice)
-        and "json" in {getattr(choice, "value", choice) for choice in param.type.choices}
+        and "json" in {getattr(choice, "value", choice) for choice in getattr(param.type, "choices", ())}
         for param in resolved.params
     )
     return has_format_option and json_errors_requested(args)
@@ -267,6 +267,8 @@ class ErrorHandlingGroup(TyperGroup):
             return super().invoke(ctx)
         except CliError as error:
             raise _BoundaryError(error) from error
+        except click.UsageError:
+            raise
         except click.exceptions.Exit as error:
             if error.exit_code:
                 raise _BoundaryExitError(error) from error
@@ -414,13 +416,24 @@ class ErrorHandlingGroup(TyperGroup):
                 emit_error(failure)
                 code = failure.contract_exit_code
         except Exception as error:
-            failure = CliError(
-                ErrorCategory.UNEXPECTED,
-                "The command failed unexpectedly.",
-                operation=operation,
-                remediation="Retry with --debug and report the failure if it persists.",
-                detail=repr(error),
-            )
+            if type(error).__module__.startswith(("click.", "typer.")) and callable(
+                getattr(error, "format_message", None)
+            ):
+                failure = CliError(
+                    ErrorCategory.USAGE,
+                    error.format_message(),
+                    operation=operation,
+                    remediation=f"Run {_command_path(self, invocation)} --help for valid usage.",
+                    detail=repr(error),
+                )
+            else:
+                failure = CliError(
+                    ErrorCategory.UNEXPECTED,
+                    "The command failed unexpectedly.",
+                    operation=operation,
+                    remediation="Retry with --debug and report the failure if it persists.",
+                    detail=repr(error),
+                )
             emit_error(failure)
             code = failure.contract_exit_code
         finally:
