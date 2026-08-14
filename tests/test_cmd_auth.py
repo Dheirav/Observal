@@ -416,7 +416,9 @@ def test_login_with_credentials_routes_to_password_authentication(
 
     auth.login(f"{SERVER_URL}/", "ada", VALID_PASSWORD, None, False, False)
 
-    password_login.assert_called_once_with(SERVER_URL, "ada", VALID_PASSWORD)
+    password_login.assert_called_once_with(
+        SERVER_URL, "ada", VALID_PASSWORD, output=auth.OutputMode.table, run_setup=True
+    )
     migrate.assert_called_once_with(SERVER_URL)
 
 
@@ -447,6 +449,8 @@ def test_login_method_menu_routes_browser_flows(
         SERVER_URL,
         direct_sso=expected_direct,
         provider=expected_provider,
+        output=auth.OutputMode.table,
+        run_setup=True,
     )
 
 
@@ -469,7 +473,13 @@ def test_login_sso_flags_bypass_method_prompt(
     auth.login(SERVER_URL, None, None, None, sso, saml)
 
     quick_choice.assert_not_called()
-    device_login.assert_called_once_with(SERVER_URL, direct_sso=True, provider=provider)
+    device_login.assert_called_once_with(
+        SERVER_URL,
+        direct_sso=True,
+        provider=provider,
+        output=auth.OutputMode.table,
+        run_setup=True,
+    )
 
 
 def test_login_sso_only_server_forces_browser_flow(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -479,7 +489,13 @@ def test_login_sso_only_server_forces_browser_flow(monkeypatch: pytest.MonkeyPat
 
     auth.login(SERVER_URL, None, None, None, False, False)
 
-    device_login.assert_called_once_with(SERVER_URL, direct_sso=True, provider=None)
+    device_login.assert_called_once_with(
+        SERVER_URL,
+        direct_sso=True,
+        provider=None,
+        output=auth.OutputMode.table,
+        run_setup=True,
+    )
 
 
 def test_login_password_menu_prompts_for_identifier_and_password(
@@ -494,7 +510,9 @@ def test_login_password_menu_prompts_for_identifier_and_password(
 
     auth.login(SERVER_URL, None, None, None, False, False)
 
-    password_login.assert_called_once_with(SERVER_URL, "ada", VALID_PASSWORD)
+    password_login.assert_called_once_with(
+        SERVER_URL, "ada", VALID_PASSWORD, output=auth.OutputMode.table, run_setup=True
+    )
 
 
 def test_login_ignores_unavailable_public_config(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -507,7 +525,9 @@ def test_login_ignores_unavailable_public_config(monkeypatch: pytest.MonkeyPatch
 
     auth.login(SERVER_URL, None, None, None, False, False)
 
-    password_login.assert_called_once_with(SERVER_URL, "ada", VALID_PASSWORD)
+    password_login.assert_called_once_with(
+        SERVER_URL, "ada", VALID_PASSWORD, output=auth.OutputMode.table, run_setup=True
+    )
 
 
 def test_login_rejects_unavailable_explicit_saml(
@@ -1118,6 +1138,7 @@ def test_device_flow_json_emits_events_and_skips_setup(
     assert events[1]["user"]["email"] == "ada@example.test"
     assert "private-device-code" not in str(events)
     assert ACCESS_TOKEN not in str(events)
+    assert REFRESH_TOKEN not in str(events)
     setup.assert_not_called()
 
 
@@ -1274,6 +1295,31 @@ def test_device_flow_uses_platform_browser_launcher(
     assert popen.call_args.args[0][0] == expected_program
     launched = " ".join(popen.call_args.args[0])
     assert f"{SERVER_URL}/device?code=ABCD-EFGH" in launched
+
+
+def test_device_flow_uses_xdg_open_when_wslpath_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    device_runtime: tuple[_Clock, MagicMock],
+) -> None:
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(subprocess, "run", MagicMock(side_effect=FileNotFoundError("wslpath")))
+    popen = MagicMock()
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    monkeypatch.setattr(
+        auth.httpx,
+        "post",
+        MagicMock(
+            side_effect=[
+                _response(200, _device_authorization()),
+                _response(400, {"error": "expired_token"}),
+            ]
+        ),
+    )
+
+    with pytest.raises(typer.Exit):
+        auth._do_device_flow_login(SERVER_URL)
+
+    assert popen.call_args.args[0][0] == "xdg-open"
 
 
 def test_device_flow_browser_failure_keeps_manual_flow_available(

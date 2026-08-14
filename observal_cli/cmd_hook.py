@@ -27,7 +27,7 @@ from observal_cli.constants import (
     VALID_HOOK_HANDLER_TYPES,
     VALID_HOOK_SCOPES,
 )
-from observal_cli.errors import ErrorCategory, fail
+from observal_cli.errors import ErrorCategory, fail, load_json_object
 from observal_cli.prompts import select_one, text_input
 from observal_cli.render import (
     OutputMode,
@@ -150,35 +150,7 @@ def hook_submit(
         return
 
     if from_file:
-        try:
-            with open(from_file) as f:
-                payload = _json.load(f)
-        except _json.JSONDecodeError as error:
-            fail(
-                ErrorCategory.VALIDATION,
-                "The hook submission file is not valid JSON.",
-                operation="Submit hook",
-                resource=from_file,
-                remediation="Correct the JSON and retry.",
-                detail=repr(error),
-            )
-        except FileNotFoundError as error:
-            fail(
-                ErrorCategory.NOT_FOUND,
-                "The hook submission file was not found.",
-                operation="Submit hook",
-                resource=from_file,
-                remediation="Provide an existing JSON file and retry.",
-                detail=repr(error),
-            )
-        if not isinstance(payload, dict):
-            fail(
-                ErrorCategory.VALIDATION,
-                "The hook submission file must contain a JSON object.",
-                operation="Submit hook",
-                resource=from_file,
-                remediation="Replace the file contents with a JSON object and retry.",
-            )
+        payload = load_json_object(from_file, operation="Submit hook", noun="hook submission file")
         if not payload.get("owner"):
             payload["owner"] = config.load().get("username", "")
     else:
@@ -773,35 +745,7 @@ def hook_edit(
     """
     resolved = client.resolve_registry_reference("hook", hook_id)
     if from_file:
-        try:
-            with open(from_file) as f:
-                updates = _json.load(f)
-        except _json.JSONDecodeError as error:
-            fail(
-                ErrorCategory.VALIDATION,
-                "The hook update file is not valid JSON.",
-                operation="Edit hook",
-                resource=from_file,
-                remediation="Correct the JSON and retry.",
-                detail=repr(error),
-            )
-        except FileNotFoundError as error:
-            fail(
-                ErrorCategory.NOT_FOUND,
-                "The hook update file was not found.",
-                operation="Edit hook",
-                resource=from_file,
-                remediation="Provide an existing update file and retry.",
-                detail=repr(error),
-            )
-        if not isinstance(updates, dict):
-            fail(
-                ErrorCategory.VALIDATION,
-                "The hook update file must contain a JSON object.",
-                operation="Edit hook",
-                resource=from_file,
-                remediation="Replace the file contents with a JSON object and retry.",
-            )
+        updates = load_json_object(from_file, operation="Edit hook", noun="hook update file")
     else:
         updates = {}
         if name is not None:

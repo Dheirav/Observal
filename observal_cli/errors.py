@@ -129,11 +129,45 @@ def json_errors_requested(args: tuple[str, ...] | list[str] | None = None) -> bo
     """Return whether the invocation explicitly selected JSON output."""
     values = tuple(args) if args is not None else _invocation_args.get()
     for index, value in enumerate(values):
-        if value == "--output=json":
+        if value in {"--output=json", "-ojson"}:
             return True
         if value in {"--output", "-o"} and index + 1 < len(values) and values[index + 1] == "json":
             return True
     return False
+
+
+def load_json_object(path: str, *, operation: str, noun: str) -> dict:
+    """Load a CLI-supplied JSON object with categorized failures."""
+    try:
+        with open(path) as file:
+            payload = json.load(file)
+    except json.JSONDecodeError as error:
+        fail(
+            ErrorCategory.VALIDATION,
+            f"The {noun} is not valid JSON.",
+            operation=operation,
+            resource=path,
+            remediation="Correct the JSON and retry.",
+            detail=repr(error),
+        )
+    except FileNotFoundError as error:
+        fail(
+            ErrorCategory.NOT_FOUND,
+            f"The {noun} was not found.",
+            operation=operation,
+            resource=path,
+            remediation="Provide an existing JSON file and retry.",
+            detail=repr(error),
+        )
+    if not isinstance(payload, dict):
+        fail(
+            ErrorCategory.VALIDATION,
+            f"The {noun} must contain a JSON object.",
+            operation=operation,
+            resource=path,
+            remediation="Replace the file contents with a JSON object and retry.",
+        )
+    return payload
 
 
 def debug_requested(args: tuple[str, ...] | list[str] | None = None) -> bool:
@@ -206,7 +240,12 @@ def _command_path(command: click.Command, args: tuple[str, ...]) -> str:
 
 def _uses_json_output(command: click.Command, args: tuple[str, ...]) -> bool:
     resolved, _path = _resolve_command(command, args)
-    has_format_option = any(param.name == "output" and param.default == "table" for param in resolved.params)
+    has_format_option = any(
+        param.name == "output"
+        and isinstance(param.type, click.Choice)
+        and "json" in {getattr(choice, "value", choice) for choice in param.type.choices}
+        for param in resolved.params
+    )
     return has_format_option and json_errors_requested(args)
 
 

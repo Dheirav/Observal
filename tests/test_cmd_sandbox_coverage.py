@@ -76,6 +76,32 @@ def test_submit_json_is_noninteractive_and_does_not_print_removed_install(monkey
     assert "sandbox install" not in result.stdout
 
 
+def test_interactive_submit_defaults_optional_json_objects(monkeypatch):
+    defaults = []
+
+    def text_input(prompt, default=None):
+        defaults.append((prompt, default))
+        return (
+            default
+            if default is not None
+            else {"Sandbox name": "runner", "Description": "Runner", "Image": "python"}[prompt]
+        )
+
+    monkeypatch.setattr(sandbox, "text_input", text_input)
+    monkeypatch.setattr(sandbox, "select_one", lambda *_args, **_kwargs: "docker")
+    post = MagicMock(return_value={"id": "sandbox-1", "name": "runner", "status": "pending"})
+    monkeypatch.setattr(sandbox.client, "post", post)
+
+    result = runner.invoke(app, ["registry", "sandbox", "submit"])
+
+    assert result.exit_code == 0, result.output
+    payload = post.call_args.args[1]
+    assert payload["resource_limits"] == {}
+    assert payload["runtime_config"] == {}
+    assert ("Resource limits (JSON)", "{}") in defaults
+    assert ("Runtime config (JSON)", "{}") in defaults
+
+
 def test_list_table_json_empty_and_typed_cache(monkeypatch):
     hostile = "Clean [/tmp] [bold]literal[/bold]"
     item = _item(name=hostile, slug=hostile)

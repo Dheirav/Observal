@@ -213,8 +213,15 @@ class TestPromptEdgeCases:
             assert result.exit_code == 0
             assert "No prompts found." in result.output
 
+    def test_submit_file_not_found(self):
+        """Submitting from a nonexistent file should use the not-found contract."""
+        result = runner.invoke(cli_app, ["registry", "prompt", "submit", "--from-file", "nope.json"])
+
+        assert result.exit_code == 5
+        assert "not found" in result.output
+
     def test_edit_file_not_found(self):
-        """Editing from a non-existent file should show a clear error and exit 1."""
+        """Editing from a non-existent file should show a clear error and exit 5."""
         with _patch_resolve_alias():
             result = runner.invoke(cli_app, ["registry", "prompt", "edit", "p123", "--from-file", "nope.json"])
 

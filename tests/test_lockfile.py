@@ -789,7 +789,7 @@ def test_agent_queries_resolve_paths_scopes_local_aliases_and_ambiguity(isolated
     assert lockfile.get_agent_by_name("missing", "kiro") is None
 
 
-def test_get_all_entries_returns_empty_without_a_configured_registry(monkeypatch):
+def test_get_all_entries_returns_empty_without_a_configured_registry(monkeypatch, isolated_lockfile):
     monkeypatch.setattr(config, "load", lambda: {"server_url": ""})
 
     assert lockfile.get_all_entries() == []

@@ -21,6 +21,8 @@ runner = CliRunner()
 @pytest.fixture(autouse=True)
 def _isolate_boundaries(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "config.json")
+    monkeypatch.setattr(config, "ALIASES_FILE", tmp_path / "aliases.json")
     monkeypatch.setattr(config, "LAST_RESULTS_FILE", tmp_path / "last_results.json")
     monkeypatch.setattr(client, "resolve_registry_reference", MagicMock(return_value="resolved-id"))
 

@@ -8,7 +8,7 @@ Publish and manage registry components. The registry has five component types: M
 
 ## Subcommand structure
 
-```
+```text
 observal registry <type> <action> [args]
 ```
 
@@ -20,7 +20,7 @@ observal registry <type> <action> [args]
 | `prompt` | yes | yes | yes | yes | no | yes | yes |
 | `sandbox` | yes | yes | no | yes | no | no | yes |
 
-Every component type also supports archive, restore, ownership transfer, and co-author management. Registry also contains the `models`, `version`, and `recommend` groups.
+Every component type also supports archive, unarchive, ownership transfer, and co-author management. Registry also contains the `models`, `version`, and `recommend` groups.
 
 All registry references accept a UUID, canonical `namespace/slug`, a unique legacy bare name, a row number from the latest list output for the same component type, or an `@alias`. Empty lists clear row references, and a row from one component type cannot be used with another. If the same bare slug exists in multiple namespaces, qualify it, for example `alice/search` instead of `search`.
 

@@ -83,7 +83,7 @@ observal scan --harness kiro
 Check pulled agents and separately installed MCPs, skills, and hooks for newer registry versions.
 
 ```bash
-observal outdated
+observal outdated --output json
 observal outdated --harness claude-code --output json --no-report
 ```
 
@@ -166,7 +166,7 @@ OBSERVAL_CURRENT_PASSWORD_FILE=/path/to/current OBSERVAL_NEW_PASSWORD_FILE=/path
 observal auth set-username new-handle --output json
 ```
 
-Never place a password directly in command arguments. JSON credential login requires the server, email, and password environment or file input. Fresh-server bootstrap also requires `--name`. JSON SSO emits an `authorization_required` event followed by an `authenticated` event. A username becomes the user's registry namespace and cannot be changed after the user owns an agent or component.
+Never place a password directly in command arguments. JSON credential login requires the server, email, and password environment or file input. Fresh-server JSON bootstrap also requires `--name`; human login prompts for it when omitted. JSON SSO emits an `authorization_required` event followed by an `authenticated` event. A username becomes the user's registry namespace and cannot be changed after the user owns an agent or component.
 
 ---
 
@@ -190,7 +190,7 @@ observal config path --output json
 observal config set server_url https://observal.example.com --output json
 observal config set timeout 60 --output json
 observal config aliases --output json
-observal config alias MY_AGENT namespace/agent --output json
+observal config alias MY_AGENT namespace/slug --output json
 ```
 
 Only `server_url`, `timeout`, `update_check`, `update_check_interval`, and `update_check_repo` are user-configurable. Authentication and identity fields are managed by `observal auth`. JSON config output never includes token values or fragments.

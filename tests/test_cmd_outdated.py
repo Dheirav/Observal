@@ -126,6 +126,43 @@ def test_empty_results_have_stable_table_and_json_output(
     post.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "registries",
+    [
+        {},
+        {
+            "https://other.example.test": {
+                "server_url": "https://other.example.test",
+                "harnesses": {"kiro": {"agents": [{"id": "other"}], "standalone": []}},
+            }
+        },
+    ],
+)
+def test_outdated_ignores_empty_or_inactive_registries(
+    registries: dict,
+    cli: typer.Typer,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from observal_cli import config, lockfile
+
+    path = tmp_path / "lockfile.json"
+    path.write_text(json.dumps({"lock_version": 2, "registries": registries}))
+    monkeypatch.setattr(lockfile, "LOCKFILE_PATH", path)
+    monkeypatch.setattr(config, "load", lambda: {"server_url": "https://active.example.test"})
+    get = MagicMock()
+    post = MagicMock()
+    monkeypatch.setattr(cmd_outdated.client, "get", get)
+    monkeypatch.setattr(cmd_outdated.client, "post", post)
+
+    result = CliRunner().invoke(cli, ["outdated", "--output", "json"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["items"] == []
+    get.assert_not_called()
+    post.assert_not_called()
+
+
 def test_json_reports_current_outdated_and_inbox_state(
     cli: typer.Typer,
     monkeypatch: pytest.MonkeyPatch,
@@ -383,6 +420,21 @@ def test_report_failure_is_visible_but_does_not_hide_results(
     assert payload["report"]["attempted"] is True
     assert payload["report"]["succeeded"] is False
     assert payload["report"]["error"]["category"] == "not_found"
+
+
+@pytest.mark.parametrize(
+    "response",
+    [None, [], {"created": "1", "superseded": 0}, {"created": 0, "superseded": -1}],
+)
+def test_malformed_inbox_report_response_is_best_effort(response, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cmd_outdated.client, "post", MagicMock(return_value=response))
+
+    item = _agent() | {"type": "agent", "latest_version": "2.0.0", "current_version": "1.0.0"}
+    status = cmd_outdated._report_to_inbox([item])
+
+    assert status["attempted"] is True
+    assert status["succeeded"] is False
+    assert status["error"]["category"] == "unavailable"
 
 
 def test_unexpected_report_failure_is_not_suppressed(

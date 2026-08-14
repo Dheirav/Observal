@@ -94,17 +94,21 @@ def _safe_detail(response: httpx.Response) -> str | None:
 
 def _browse_remediation(path: str) -> str:
     parts = path.strip("/").split("/")
-    type_plural = parts[2] if len(parts) > 2 else "mcps"
+    type_plural = (
+        "agents" if len(parts) > 3 and parts[2:4] == ["insights", "agents"] else parts[2] if len(parts) > 2 else ""
+    )
     if type_plural.endswith("xes"):
         type_singular = type_plural[:-2]
     elif type_plural.endswith("s"):
         type_singular = type_plural[:-1]
     else:
         type_singular = type_plural
-    if len(parts) > 3 and parts[2] == "insights" and parts[3] == "agents":
+    if type_singular == "agent":
         browse_cmd = "observal agent list"
+    elif type_singular in {"mcp", "skill", "hook", "prompt", "sandbox"}:
+        browse_cmd = f"observal registry {type_singular} list"
     else:
-        browse_cmd = "observal agent list" if type_singular == "agent" else f"observal registry {type_singular} list"
+        return "Check the identifier and retry."
     return f"Check the identifier or run {browse_cmd} to browse available resources."
 
 

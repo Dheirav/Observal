@@ -88,6 +88,46 @@ def _parse_frontmatter(content: str) -> dict:
         return {}
 
 
+def _validate_skill_fields(payload: dict, operation: str) -> None:
+    task_type = payload.get("task_type")
+    if task_type is not None and task_type not in VALID_SKILL_TASK_TYPES:
+        fail(
+            ErrorCategory.VALIDATION,
+            f"Unknown skill task type: {task_type}.",
+            operation=operation,
+            resource="task type",
+            remediation=f"Choose one of: {', '.join(VALID_SKILL_TASK_TYPES)}.",
+        )
+    harnesses = payload.get("supported_harnesses")
+    if harnesses is not None:
+        bad_harnesses = (
+            [item for item in harnesses if item not in VALID_HARNESSES]
+            if isinstance(harnesses, list)
+            else [str(harnesses)]
+        )
+        if bad_harnesses:
+            fail(
+                ErrorCategory.VALIDATION,
+                f"Unknown harness: {bad_harnesses[0]}.",
+                operation=operation,
+                resource="supported harnesses",
+                remediation=f"Choose from: {', '.join(VALID_HARNESSES)}.",
+            )
+    version = payload.get("version")
+    if version is not None:
+        try:
+            Version(str(version))
+        except InvalidVersion as error:
+            fail(
+                ErrorCategory.VALIDATION,
+                "The skill version is invalid.",
+                operation=operation,
+                resource=str(version),
+                remediation="Provide a valid version and retry.",
+                detail=repr(error),
+            )
+
+
 # ── Submit ────────────────────────────────────────────────────────────────────
 
 
@@ -132,7 +172,8 @@ def skill_submit(
     Examples:
         observal registry skill submit --git-url https://github.com/org/repo
         observal registry skill submit --skill-md ./SKILL.md --git-url https://github.com/org/repo
-        observal registry skill submit --skill-md ./SKILL.md --script ./run.sh --delivery-mode registry_direct --name my-skill --description "My skill" --output json
+        observal registry skill submit --skill-md ./SKILL.md --script ./run.sh \
+          --delivery-mode registry_direct --name my-skill --description "My skill" --output json
     """
     human_output = output != "json"
     if human_output:
@@ -187,6 +228,7 @@ def skill_submit(
                 resource=from_file,
                 remediation="Replace the file contents with a JSON object and retry.",
             )
+        _validate_skill_fields(payload, "Submit skill")
     else:
         # --- Paste-first: parse SKILL.md locally if provided ---
         prefill: dict = {}
@@ -272,34 +314,6 @@ def skill_submit(
                 "delivery_mode": effective_delivery_mode,
                 "supported_harnesses": supported_harnesses or [],
             }
-            if payload["task_type"] not in VALID_SKILL_TASK_TYPES:
-                fail(
-                    ErrorCategory.VALIDATION,
-                    f"Unknown skill task type: {payload['task_type']}.",
-                    operation="Submit skill",
-                    resource="task type",
-                    remediation=f"Choose one of: {', '.join(VALID_SKILL_TASK_TYPES)}.",
-                )
-            bad_harnesses = [item for item in payload["supported_harnesses"] if item not in VALID_HARNESSES]
-            if bad_harnesses:
-                fail(
-                    ErrorCategory.VALIDATION,
-                    f"Unknown harness: {bad_harnesses[0]}.",
-                    operation="Submit skill",
-                    resource="supported harnesses",
-                    remediation=f"Choose from: {', '.join(VALID_HARNESSES)}.",
-                )
-            try:
-                Version(str(payload["version"]))
-            except InvalidVersion as error:
-                fail(
-                    ErrorCategory.VALIDATION,
-                    "The skill version is invalid.",
-                    operation="Submit skill",
-                    resource=str(payload["version"]),
-                    remediation="Provide a valid version and retry.",
-                    detail=repr(error),
-                )
         else:
             agents_input = text_input("Target agents (comma-separated)", default="")
             payload = {
@@ -311,6 +325,7 @@ def skill_submit(
                 "target_agents": [a.strip() for a in agents_input.split(",") if a.strip()],
                 "delivery_mode": effective_delivery_mode,
             }
+        _validate_skill_fields(payload, "Submit skill")
         if effective_delivery_mode == "git_fetch":
             if flag_mode and not git_url:
                 fail(
@@ -947,7 +962,6 @@ def skill_edit(
         observal registry skill edit abc123 --from-file updates.json
         observal registry skill edit @sk --git-url https://github.com/org/new-repo --output json
     """
-    resolved = client.resolve_registry_reference("skill", skill_id)
     if from_file:
         try:
             with open(from_file) as f:
@@ -1001,27 +1015,9 @@ def skill_edit(
             resource=skill_id,
             remediation="Provide an update file or one or more field options.",
         )
-    if task_type is not None and task_type not in VALID_SKILL_TASK_TYPES:
-        fail(
-            ErrorCategory.VALIDATION,
-            f"Unknown skill task type: {task_type}.",
-            operation="Edit skill",
-            resource="task type",
-            remediation=f"Choose one of: {', '.join(VALID_SKILL_TASK_TYPES)}.",
-        )
-    if version is not None:
-        try:
-            Version(version)
-        except InvalidVersion as error:
-            fail(
-                ErrorCategory.VALIDATION,
-                "The skill version is invalid.",
-                operation="Edit skill",
-                resource=version,
-                remediation="Provide a valid version and retry.",
-                detail=repr(error),
-            )
+    _validate_skill_fields(updates, "Edit skill")
 
+    resolved = client.resolve_registry_reference("skill", skill_id)
     client.post(f"/api/v1/skills/{resolved}/start-edit")
     save_context = nullcontext() if output == "json" else spinner("Saving changes...")
     with save_context:

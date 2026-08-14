@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json as _json
 from contextlib import nullcontext
+from pathlib import Path
 
 import typer
 from packaging.version import InvalidVersion, Version
@@ -19,7 +20,7 @@ from rich.table import Table
 
 from observal_cli import client, config
 from observal_cli.constants import VALID_PROMPT_CATEGORIES
-from observal_cli.errors import ErrorCategory, fail
+from observal_cli.errors import ErrorCategory, fail, load_json_object
 from observal_cli.prompts import select_one, text_input
 from observal_cli.render import (
     OutputMode,
@@ -102,8 +103,17 @@ def prompt_submit(
 
     flag_mode = any(x is not None for x in (name, version, description, category, template))
     if from_file:
-        with open(from_file) as f:
-            content = f.read()
+        try:
+            content = Path(from_file).read_text()
+        except FileNotFoundError as error:
+            fail(
+                ErrorCategory.NOT_FOUND,
+                "The prompt submission file was not found.",
+                operation="Submit prompt",
+                resource=from_file,
+                remediation="Provide an existing file and retry.",
+                detail=repr(error),
+            )
         try:
             payload = _json.loads(content)
             if not payload.get("owner"):
@@ -419,35 +429,7 @@ def prompt_edit(
     """
     resolved = client.resolve_registry_reference("prompt", prompt_id)
     if from_file:
-        try:
-            with open(from_file) as f:
-                updates = _json.load(f)
-        except _json.JSONDecodeError as error:
-            fail(
-                ErrorCategory.VALIDATION,
-                "The prompt update file is not valid JSON.",
-                operation="Edit prompt",
-                resource=from_file,
-                remediation="Correct the JSON and retry.",
-                detail=repr(error),
-            )
-        except FileNotFoundError as error:
-            fail(
-                ErrorCategory.NOT_FOUND,
-                "The prompt update file was not found.",
-                operation="Edit prompt",
-                resource=from_file,
-                remediation="Provide an existing update file and retry.",
-                detail=repr(error),
-            )
-        if not isinstance(updates, dict):
-            fail(
-                ErrorCategory.VALIDATION,
-                "The prompt update file must contain a JSON object.",
-                operation="Edit prompt",
-                resource=from_file,
-                remediation="Replace the file contents with a JSON object and retry.",
-            )
+        updates = load_json_object(from_file, operation="Edit prompt", noun="prompt update file")
     else:
         updates = {}
         if name is not None:
