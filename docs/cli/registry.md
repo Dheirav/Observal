@@ -296,11 +296,12 @@ observal registry skill submit [OPTIONS]
 | `--git-ref` | | Branch or tag (default: main) |
 | `--draft` | | Save as draft instead of submitting for review |
 | `--submit` | | Submit a draft for review (skill ID) |
+| `--output` | `-o` | Output format: `table` or `json` |
 
 ```bash
 observal registry skill submit --git-url https://github.com/org/repo
 observal registry skill submit --from-file skill.json
-observal registry skill submit --skill-md ./SKILL.md --git-url https://github.com/org/repo
+observal registry skill submit --skill-md ./SKILL.md --git-url https://github.com/org/repo --name review --description "Review code" --task-type code-review --output json
 observal registry skill submit --draft
 observal registry skill submit --submit abc123
 ```
@@ -375,11 +376,15 @@ observal registry skill install <id-or-name> --harness <harness> [--scope user|p
 | `--harness` | `-i` | Target harness (required) |
 | `--scope` | `-s` | Install scope: `user` (global, default) or `project` |
 | `--raw` | | Output raw JSON only |
-| `--no-write` | | Print config without writing files |
+| `--no-write` | | Generate config without writing skill files or lockfile state |
+| `--version` | `-V` | Install one version instead of the latest |
+| `--output` | `-o` | Output the operation result as table or JSON |
 
 Scopes:
-- `user` (default): writes to `~/.<harness>/skills/<name>/` (global).
-- `project`: writes to `.agents/skills/<name>/` in cwd, then symlinks into each harness config dir found in the project.
+- `user` (default): writes to `~/.<harness>/skills/<name>/` globally.
+- `project`: writes to `.agents/skills/<name>/` in the current directory, then symlinks into detected harness config directories.
+
+JSON output does not disable installation. It returns whether files were written and the installed path. Raw and no-write modes do not record the skill as installed. A failed file write or lockfile update returns a categorized failure instead of reporting success.
 
 ```bash
 observal registry skill install my-skill --harness claude-code
@@ -407,6 +412,7 @@ observal registry skill edit <id-or-name> [OPTIONS]
 | `--task-type` | `-t` | New task type |
 | `--git-url` | | New git URL |
 | `--git-ref` | | New git ref |
+| `--output` | `-o` | Output format: `table` or `json` |
 
 ```bash
 observal registry skill edit my-skill --description "Better desc"
