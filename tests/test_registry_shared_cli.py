@@ -79,7 +79,16 @@ def test_co_author_mutations_return_json(monkeypatch) -> None:
     )
     removed = runner.invoke(
         app,
-        ["registry", "mcp", "co-authors", "remove", "acme/item", "user-id", "--output", "json"],
+        [
+            "registry",
+            "mcp",
+            "co-authors",
+            "remove",
+            "acme/item",
+            "22222222-2222-2222-2222-222222222222",
+            "--output",
+            "json",
+        ],
     )
 
     assert json.loads(added.stdout)["id"] == "user-id"

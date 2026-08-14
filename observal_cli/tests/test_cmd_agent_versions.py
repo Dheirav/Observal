@@ -354,5 +354,5 @@ def test_agent_pull_path_traversal_rejected(tmp_path: Path) -> None:
         )
 
     # Should fail due to path escape
-    assert result.exit_code == 1
+    assert result.exit_code == 7
     assert not (tmp_path / ".." / ".." / "etc" / "evil.txt").resolve().exists()

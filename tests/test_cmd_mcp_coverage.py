@@ -1064,7 +1064,14 @@ def test_mcp_co_author_commands_include_delete_boundary(monkeypatch):
     )
     removed = runner.invoke(
         app,
-        ["registry", "mcp", "co-authors", "remove", "mcp-1", "user-1"],
+        [
+            "registry",
+            "mcp",
+            "co-authors",
+            "remove",
+            "mcp-1",
+            "22222222-2222-2222-2222-222222222222",
+        ],
     )
 
     assert listed.exit_code == added.exit_code == removed.exit_code == 0
@@ -1074,7 +1081,7 @@ def test_mcp_co_author_commands_include_delete_boundary(monkeypatch):
         "/api/v1/mcps/mcp-1/co-authors",
         json_data={"email": "dev@example.com"},
     )
-    delete.assert_called_once_with("/api/v1/mcps/mcp-1/co-authors/user-1")
+    delete.assert_called_once_with("/api/v1/mcps/mcp-1/co-authors/22222222-2222-2222-2222-222222222222")
 
 
 def test_mcp_archive_is_the_destructive_listing_lifecycle(monkeypatch):

@@ -615,9 +615,9 @@ class TestWriteFile:
         p = tmp_path / "config.yaml"
         p.write_text("extensions: [unclosed\n")
 
-        status = _write_file(p, {"extensions": {"fs": {}}}, merge_mcp=True)
+        with pytest.raises(ValueError, match="unreadable YAML"):
+            _write_file(p, {"extensions": {"fs": {}}}, merge_mcp=True)
 
-        assert status.startswith("skipped")
         assert p.read_text() == "extensions: [unclosed\n"
 
 

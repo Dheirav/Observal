@@ -1168,7 +1168,14 @@ def test_skill_co_author_commands_render_and_preserve_http_boundaries(monkeypatc
     )
     removed = runner.invoke(
         app,
-        ["registry", "skill", "co-authors", "remove", "skill-1", "user-1"],
+        [
+            "registry",
+            "skill",
+            "co-authors",
+            "remove",
+            "skill-1",
+            "22222222-2222-2222-2222-222222222222",
+        ],
     )
 
     assert all(result.exit_code == 0 for result in (listed, empty, email_added, username_added, removed))
@@ -1181,7 +1188,7 @@ def test_skill_co_author_commands_render_and_preserve_http_boundaries(monkeypatc
         call("/api/v1/skills/skill-1/co-authors", json_data={"email": "dev@example.com"}),
         call("/api/v1/skills/skill-1/co-authors", json_data={"username": "other"}),
     ]
-    delete.assert_called_once_with("/api/v1/skills/skill-1/co-authors/user-1")
+    delete.assert_called_once_with("/api/v1/skills/skill-1/co-authors/22222222-2222-2222-2222-222222222222")
 
 
 def test_skill_submit_json_is_noninteractive_and_clean(tmp_path, monkeypatch):
