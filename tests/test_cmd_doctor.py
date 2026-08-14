@@ -416,19 +416,19 @@ class TestPatchFunctions:
                 "observal_cli.lockfile_reconcile.plan_lockfile_reconciliation",
                 return_value=MagicMock(changes=[], warnings=[]),
             ),
-            patch("subprocess.run") as run,
+            patch("observal_cli.cmd_doctor._patch_targets", return_value={"changed": True}) as patch_targets,
             patch("observal_cli.skill_installer.install_observal_skill"),
         ):
             result = CliRunner().invoke(doctor_app, ["--yes"])
 
         assert result.exit_code == 0
-        assert run.call_args.args[0][-2:] == ["patch", "--all-harnesses"]
+        patch_targets.assert_called_once()
 
     def test_doctor_patch_requires_target(self):
         with pytest.raises(typer.Exit) as exc:
             doctor_patch(all_harnesses=False, harness=[], dry_run=False)
 
-        assert exc.value.exit_code == 1
+        assert exc.value.exit_code == 7
 
     def test_doctor_patch_rejects_unknown_harness(self):
         with (
@@ -437,7 +437,7 @@ class TestPatchFunctions:
         ):
             doctor_patch(all_harnesses=False, harness=["wat"], dry_run=False)
 
-        assert exc.value.exit_code == 1
+        assert exc.value.exit_code == 7
 
 
 class TestCleanupFunctions:

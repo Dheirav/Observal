@@ -119,10 +119,10 @@ Reports: detected harnesses, MCP servers, skills, hooks, agents, and unregistere
 Diagnose only. Does not fix anything.
 
 ```bash
-observal doctor
+observal doctor --output json
 ```
 
-Reports: Observal config validity, server reachability, lockfile metadata drift against the active registry, hook installation status per harness, and skill presence. The repair prompt updates canonical lockfile metadata and Observal-managed harness hooks, including UUID-attributed Kiro agent hooks. Installed version pins remain unchanged. Exits non-zero if issues remain.
+Reports: Observal config validity, server reachability, lockfile metadata drift against the active Registry, hook installation status per harness, and skill presence. In JSON mode, diagnosis exits zero when checks run and reports health through `healthy`, `issues`, and `warnings`. Use `--yes --output json` to apply fixable warnings without prompting. Installed version pins remain unchanged.
 
 ---
 
@@ -131,10 +131,10 @@ Reports: Observal config validity, server reachability, lockfile metadata drift 
 Install session telemetry hooks. Run with `--dry-run` first when the user is unsure.
 
 ```bash
-observal doctor patch --all-harnesses --dry-run
-observal doctor patch --all-harnesses
-observal doctor patch --harness kiro
-observal doctor patch --harness claude-code
+observal doctor patch --all-harnesses --dry-run --output json
+observal doctor patch --all-harnesses --output json
+observal doctor patch --harness kiro --output json
+observal doctor patch --harness claude-code --output json
 ```
 
 **Required:** select `--all-harnesses` or at least one `--harness`. MCP commands and URLs are not modified. For Pi, Doctor installs the bundled TypeScript extension directly at `~/.pi/agent/extensions/observal.ts` and removes the legacy npm package registration.
@@ -143,15 +143,15 @@ observal doctor patch --harness claude-code
 
 ## Procedure: Doctor Cleanup
 
-Remove Observal-managed hooks and env vars from harness configs. Leaves user content untouched.
+Remove Observal-managed hooks and settings from harness configs. Leaves user content untouched. JSON writes require `--yes`; dry runs do not.
 
 ```bash
-observal doctor cleanup --dry-run
-observal doctor cleanup
-observal doctor cleanup --harness kiro
+observal doctor cleanup --dry-run --output json
+observal doctor cleanup --yes --output json
+observal doctor cleanup --harness kiro --yes --output json
 ```
 
----
+**Support bundles:** Generate with `observal doctor support bundle --file /tmp/observal-support.tar.gz --output json`, then inspect with `observal doctor support inspect /tmp/observal-support.tar.gz --output json`. Remote failures remain explicit; treat the archive as sensitive.
 
 ## Procedure: Auth
 

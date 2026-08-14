@@ -397,7 +397,8 @@ def test_json_error_mode_distinguishes_format_from_file_destination():
 
     root = get_command(app)
     assert _uses_json_output(root, ("agent", "show", "reviewer", "--output", "json")) is True
-    assert _uses_json_output(root, ("doctor", "support", "bundle", "--output", "json")) is False
+    assert _uses_json_output(root, ("doctor", "support", "bundle", "--output", "json")) is True
+    assert _uses_json_output(root, ("doctor", "support", "bundle", "--file", "json")) is False
 
 
 def test_root_boundary_emits_json_usage_error_to_stderr():
