@@ -96,14 +96,14 @@ There are two delivery modes for skills:
 
 **Git-based** (server validates SKILL.md from repo, recommended for open-source):
 ```bash
-observal registry skill submit --skill-md ./SKILL.md --git-url https://github.com/org/repo --git-ref main --name my-skill --description 'What it does' --task-type general
-observal registry skill submit --skill-md ./SKILL.md --git-url https://github.com/org/repo --name internal-skill --description 'Team skill' --task-type general --team platform-tools --visibility team
+observal registry skill submit --skill-md ./SKILL.md --git-url https://github.com/org/repo --git-ref main --name my-skill --description 'What it does' --task-type general --output json
+observal registry skill submit --skill-md ./SKILL.md --git-url https://github.com/org/repo --name internal-skill --description 'Team skill' --task-type general --team platform-tools --visibility team --output json
 ```
 
 **Registry direct** (inline SKILL.md + optional script, no git repo needed):
 ```bash
-observal registry skill submit --skill-md ./SKILL.md --delivery-mode registry_direct --name my-skill --description 'What it does' --task-type general --harness claude-code
-observal registry skill submit --skill-md ./SKILL.md --script ./run.sh --delivery-mode registry_direct --name my-skill --description 'What it does' --task-type general
+observal registry skill submit --skill-md ./SKILL.md --delivery-mode registry_direct --name my-skill --description 'What it does' --task-type general --harness claude-code --output json
+observal registry skill submit --skill-md ./SKILL.md --script ./run.sh --delivery-mode registry_direct --name my-skill --description 'What it does' --task-type general --output json
 ```
 
 On install, registry_direct skills write `<skill-name>/SKILL.md` and `<skill-name>/scripts/<filename>` into the harness skills directory.
@@ -149,9 +149,9 @@ All types support `--draft` to save without review and `--submit namespace/slug`
 observal registry mcp install NAME --harness kiro --no-prompt --output json
 observal registry mcp install NAME --harness claude-code --raw
 observal registry mcp install NAME --harness cursor --version 2.1.0 --no-prompt --output json
-observal registry skill install NAME --harness kiro --scope user
-observal registry skill install NAME --harness claude-code --scope project
-observal registry skill install NAME --harness claude-code --version 1.2.0
+observal registry skill install NAME --harness kiro --scope user --output json
+observal registry skill install NAME --harness claude-code --scope project --output json
+observal registry skill install NAME --harness claude-code --version 1.2.0 --output json
 observal registry hook install NAME --harness kiro
 observal registry hook install NAME --harness claude-code --platform darwin --dir .
 ```
@@ -171,7 +171,7 @@ observal registry hook install NAME --harness claude-code --platform darwin --di
 ```bash
 observal registry mcp edit NAME --from-file updates.json --output json
 observal registry mcp edit NAME --name new-name --description 'New desc' --output json
-observal registry skill edit NAME --from-file updates.json
+observal registry skill edit NAME --from-file updates.json --output json
 observal registry hook edit NAME --version 1.2.0 --event Stop
 observal registry prompt edit NAME --template 'New template body'
 observal registry sandbox edit NAME --image python:3.12-slim

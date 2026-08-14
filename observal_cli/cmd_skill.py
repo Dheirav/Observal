@@ -13,20 +13,24 @@ import json as _json
 import re
 import subprocess
 import tempfile
-from contextlib import nullcontext
+from contextlib import nullcontext, redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 import typer
+from packaging.version import InvalidVersion, Version
 from rich import print as rprint
 from rich.table import Table
 
 from observal_cli import client, config
-from observal_cli.constants import VALID_SKILL_TASK_TYPES
+from observal_cli.constants import HARNESS_CAPABILITIES, VALID_HARNESSES, VALID_SKILL_TASK_TYPES
+from observal_cli.errors import ErrorCategory, fail
 from observal_cli.prompts import select_one, text_input
 from observal_cli.render import (
     OutputMode,
     console,
     display_name,
+    esc,
     handle,
     kv_panel,
     output_json,
@@ -107,6 +111,7 @@ def skill_submit(
     submit_draft: str | None = typer.Option(None, "--submit", help="Submit a draft for review (skill ID)"),
     team: str | None = typer.Option(None, "--team", help="Teamspace UUID or handle"),
     visibility: str | None = typer.Option(None, "--visibility", help="Visibility: public or team"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """Submit a new skill for review.
 
@@ -127,33 +132,61 @@ def skill_submit(
     Examples:
         observal registry skill submit --git-url https://github.com/org/repo
         observal registry skill submit --skill-md ./SKILL.md --git-url https://github.com/org/repo
-        observal registry skill submit --skill-md ./SKILL.md --script ./run.sh --delivery-mode registry_direct
+        observal registry skill submit --skill-md ./SKILL.md --script ./run.sh --delivery-mode registry_direct --name my-skill --description "My skill" --output json
     """
-    rprint("[dim]Note: Only submit components you created (private) or are the point-of-contact for (external).[/dim]")
+    human_output = output != "json"
+    if human_output:
+        rprint("[dim]Note: Only submit components you created or represent.[/dim]")
     if draft and submit_draft:
-        rprint(
-            "[red]Cannot use --draft and --submit together.[/red] "
-            "Use --draft to save a new draft, or --submit to submit an existing draft."
+        fail(
+            ErrorCategory.VALIDATION,
+            "Draft creation and draft submission cannot be requested together.",
+            operation="Submit skill",
+            resource="submit options",
+            remediation="Choose either draft creation or draft submission and retry.",
         )
-        raise typer.Exit(code=1)
 
     if submit_draft:
         resolved = client.resolve_registry_reference("skill", submit_draft)
-        with spinner("Submitting draft for review..."):
+        submit_context = nullcontext() if output == "json" else spinner("Submitting draft for review...")
+        with submit_context:
             result = client.post(f"/api/v1/skills/{resolved}/submit")
-        rprint(f"[green]✓ Draft submitted for review![/green] ID: [bold]{result['id']}[/bold]")
+        if output == "json":
+            output_json(result)
+        else:
+            rprint(f"[green]✓ Draft submitted for review![/green] ID: [bold]{esc(result['id'])}[/bold]")
         return
 
     if from_file:
         try:
             with open(from_file) as f:
                 payload = _json.load(f)
-        except _json.JSONDecodeError as e:
-            rprint(f"[red]Invalid JSON in {from_file}:[/red] {e}")
-            raise typer.Exit(code=1)
-        except FileNotFoundError:
-            rprint(f"[red]File not found:[/red] {from_file}")
-            raise typer.Exit(code=1)
+        except _json.JSONDecodeError as error:
+            fail(
+                ErrorCategory.VALIDATION,
+                "The skill submission file is not valid JSON.",
+                operation="Submit skill",
+                resource=from_file,
+                remediation="Correct the JSON and retry.",
+                detail=repr(error),
+            )
+        except FileNotFoundError as error:
+            fail(
+                ErrorCategory.NOT_FOUND,
+                "The skill submission file was not found.",
+                operation="Submit skill",
+                resource=from_file,
+                remediation="Provide an existing JSON file and retry.",
+                detail=repr(error),
+            )
+        if not isinstance(payload, dict):
+            fail(
+                ErrorCategory.VALIDATION,
+                "The skill submission file must contain a JSON object.",
+                operation="Submit skill",
+                resource=from_file,
+                remediation="Replace the file contents with a JSON object and retry.",
+            )
     else:
         # --- Paste-first: parse SKILL.md locally if provided ---
         prefill: dict = {}
@@ -164,9 +197,15 @@ def skill_submit(
         if skill_md:
             try:
                 raw = Path(skill_md).read_text(encoding="utf-8")
-            except FileNotFoundError:
-                rprint(f"[red]SKILL.md not found:[/red] {skill_md}")
-                raise typer.Exit(code=1)
+            except FileNotFoundError as error:
+                fail(
+                    ErrorCategory.NOT_FOUND,
+                    "The SKILL.md file was not found.",
+                    operation="Submit skill",
+                    resource=skill_md,
+                    remediation="Provide an existing SKILL.md file and retry.",
+                    detail=repr(error),
+                )
             fm = _parse_frontmatter(raw)
             skill_md_content = raw
             prefill["name"] = fm.get("name", "")
@@ -174,20 +213,26 @@ def skill_submit(
             cmd_field = fm.get("command", "")
             if isinstance(cmd_field, str) and cmd_field.strip():
                 prefill["slash_command"] = cmd_field.strip().lstrip("/")
-            if fm:
+            if fm and human_output:
                 rprint(
-                    f"[green]✓ Parsed SKILL.md:[/green] name={prefill.get('name')!r}  "
-                    f"description={str(prefill.get('description', ''))[:60]!r}"
+                    f"[green]✓ Parsed SKILL.md:[/green] name={esc(repr(prefill.get('name')))}  "
+                    f"description={esc(repr(str(prefill.get('description', ''))[:60]))}"
                 )
 
         if script:
             script_path_obj = Path(script)
-            if not script_path_obj.exists():
-                rprint(f"[red]Script file not found:[/red] {script}")
-                raise typer.Exit(code=1)
+            if not script_path_obj.is_file():
+                fail(
+                    ErrorCategory.NOT_FOUND,
+                    "The skill script file was not found.",
+                    operation="Submit skill",
+                    resource=script,
+                    remediation="Provide an existing script file and retry.",
+                )
             script_content = script_path_obj.read_text(encoding="utf-8")
             script_filename = script_path_obj.name
-            rprint(f"[green]✓ Read script:[/green] {script_filename}")
+            if human_output:
+                rprint(f"[green]✓ Read script:[/green] {esc(script_filename)}")
 
         # Auto-detect delivery mode
         effective_delivery_mode = delivery_mode or (
@@ -198,12 +243,25 @@ def skill_submit(
             x is not None
             for x in (name, version, description, task_type, skill_path, slash_command, supported_harnesses)
         ) or bool(target_agent)
+        if output == "json" and not flag_mode:
+            fail(
+                ErrorCategory.VALIDATION,
+                "JSON mode requires explicit skill fields.",
+                operation="Submit skill",
+                resource="submit options",
+                remediation="Provide name, description, task type, and the selected delivery source.",
+            )
         if flag_mode:
             _name = name or prefill.get("name", "")
             _description = description or prefill.get("description", "")
             if not _name or not _description:
-                rprint("[red]Error:[/red] --name and --description are required without interactive prompts")
-                raise typer.Exit(1)
+                fail(
+                    ErrorCategory.VALIDATION,
+                    "Skill name and description are required without prompts.",
+                    operation="Submit skill",
+                    resource="skill payload",
+                    remediation="Provide both name and description and retry.",
+                )
             payload = {
                 "name": _name,
                 "version": version or "1.0.0",
@@ -215,8 +273,33 @@ def skill_submit(
                 "supported_harnesses": supported_harnesses or [],
             }
             if payload["task_type"] not in VALID_SKILL_TASK_TYPES:
-                rprint(f"[red]Error:[/red] Invalid task type: {payload['task_type']}")
-                raise typer.Exit(1)
+                fail(
+                    ErrorCategory.VALIDATION,
+                    f"Unknown skill task type: {payload['task_type']}.",
+                    operation="Submit skill",
+                    resource="task type",
+                    remediation=f"Choose one of: {', '.join(VALID_SKILL_TASK_TYPES)}.",
+                )
+            bad_harnesses = [item for item in payload["supported_harnesses"] if item not in VALID_HARNESSES]
+            if bad_harnesses:
+                fail(
+                    ErrorCategory.VALIDATION,
+                    f"Unknown harness: {bad_harnesses[0]}.",
+                    operation="Submit skill",
+                    resource="supported harnesses",
+                    remediation=f"Choose from: {', '.join(VALID_HARNESSES)}.",
+                )
+            try:
+                Version(str(payload["version"]))
+            except InvalidVersion as error:
+                fail(
+                    ErrorCategory.VALIDATION,
+                    "The skill version is invalid.",
+                    operation="Submit skill",
+                    resource=str(payload["version"]),
+                    remediation="Provide a valid version and retry.",
+                    detail=repr(error),
+                )
         else:
             agents_input = text_input("Target agents (comma-separated)", default="")
             payload = {
@@ -230,8 +313,13 @@ def skill_submit(
             }
         if effective_delivery_mode == "git_fetch":
             if flag_mode and not git_url:
-                rprint("[red]Error:[/red] --git-url is required for git_fetch skills")
-                raise typer.Exit(1)
+                fail(
+                    ErrorCategory.VALIDATION,
+                    "A Git URL is required for git-fetch skills.",
+                    operation="Submit skill",
+                    resource="Git URL",
+                    remediation="Provide a Git URL or choose registry-direct delivery.",
+                )
             payload["git_url"] = git_url or text_input("Git URL")
             payload["skill_path"] = skill_path or ("/" if flag_mode else text_input("Skill path in repo", default="/"))
             payload["git_ref"] = git_ref or (
@@ -248,12 +336,16 @@ def skill_submit(
     client.add_publish_target(payload, team, visibility)
     endpoint = "/api/v1/skills/draft" if draft else "/api/v1/skills/submit"
     label = "draft" if draft else "skill"
-    with spinner(f"Saving {label}..."):
+    submit_context = nullcontext() if output == "json" else spinner(f"Saving {label}...")
+    with submit_context:
         result = client.post(endpoint, payload)
+    if output == "json":
+        output_json(result)
+        return
     validated = result.get("validated", False)
     validated_tag = "[green]✓ validated[/green]" if validated else "[yellow]unvalidated[/yellow]"
-    rprint(f"[green]✓ {label.capitalize()} submitted![/green] ID: [bold]{result['id']}[/bold]  {validated_tag}")
-    rprint(f"  Install: [cyan]observal registry skill install {client.canonical_name(result)}[/cyan]")
+    rprint(f"[green]✓ {label.capitalize()} submitted![/green] ID: [bold]{esc(result['id'])}[/bold]  {validated_tag}")
+    rprint(f"  Install: [cyan]observal registry skill install {esc(client.canonical_name(result))}[/cyan]")
 
 
 # ── List / My ─────────────────────────────────────────────────────────────────
@@ -277,9 +369,25 @@ def skill_list(
 
     Examples:
         observal registry skill list
-        observal registry skill list --task-type coding
+        observal registry skill list --task-type code-generation
         observal registry skill list --target-agent claude-code --output json
     """
+    if task_type and task_type not in VALID_SKILL_TASK_TYPES:
+        fail(
+            ErrorCategory.VALIDATION,
+            f"Unknown skill task type: {task_type}.",
+            operation="List skills",
+            resource="task type filter",
+            remediation=f"Choose one of: {', '.join(VALID_SKILL_TASK_TYPES)}.",
+        )
+    if harness and (harness not in VALID_HARNESSES or "skills" not in HARNESS_CAPABILITIES.get(harness, set())):
+        fail(
+            ErrorCategory.VALIDATION,
+            f"Harness {harness} does not support skills.",
+            operation="List skills",
+            resource="harness filter",
+            remediation="Choose a harness with skill support.",
+        )
     params = {}
     if task_type:
         params["task_type"] = task_type
@@ -317,11 +425,11 @@ def skill_list(
     for i, item in enumerate(data, 1):
         table.add_row(
             str(i),
-            display_name(item),
-            item.get("version", ""),
-            handle(item),
+            esc(display_name(item)),
+            esc(item.get("version", "")),
+            esc(handle(item)),
             status_badge(item.get("status", "")),
-            str(item["id"])[:8] + "…",
+            esc(str(item["id"])[:8] + "…"),
         )
     console.print(table)
 
@@ -363,11 +471,11 @@ def skill_my(
     for i, item in enumerate(data, 1):
         table.add_row(
             str(i),
-            display_name(item),
-            item.get("version", ""),
-            handle(item),
+            esc(display_name(item)),
+            esc(item.get("version", "")),
+            esc(handle(item)),
             status_badge(item.get("status", "")),
-            str(item["id"])[:8] + "…",
+            esc(str(item["id"])[:8] + "…"),
         )
     console.print(table)
 
@@ -400,22 +508,22 @@ def skill_show(
         return
     console.print(
         kv_panel(
-            f"{display_name(item)} v{item.get('version', '?')}",
+            f"{esc(display_name(item))} v{esc(item.get('version', '?'))}",
             [
                 ("Status", status_badge(item.get("status", ""))),
                 ("Validated", "✓" if item.get("validated") else "✗"),
-                ("Task Type", item.get("task_type", "N/A")),
-                ("Delivery Mode", item.get("delivery_mode", "git_fetch")),
-                ("Namespace", handle(item) or "N/A"),
-                ("Git URL", item.get("git_url", "N/A")),
-                ("Git Ref", item.get("git_ref") or "N/A"),
-                ("Skill Path", item.get("skill_path", "/")),
-                ("Script", item.get("script_filename") or "N/A"),
-                ("Slash Command", f"/{item['slash_command']}" if item.get("slash_command") else "N/A"),
-                ("Description", item.get("description", "")),
-                ("Target Agents", ", ".join(item.get("target_agents", [])) or "N/A"),
-                ("Created", relative_time(item.get("created_at"))),
-                ("ID", f"[dim]{item['id']}[/dim]"),
+                ("Task Type", esc(item.get("task_type", "N/A"))),
+                ("Delivery Mode", esc(item.get("delivery_mode", "git_fetch"))),
+                ("Namespace", esc(handle(item) or "N/A")),
+                ("Git URL", esc(item.get("git_url", "N/A"))),
+                ("Git Ref", esc(item.get("git_ref") or "N/A")),
+                ("Skill Path", esc(item.get("skill_path", "/"))),
+                ("Script", esc(item.get("script_filename") or "N/A")),
+                ("Slash Command", esc(f"/{item['slash_command']}" if item.get("slash_command") else "N/A")),
+                ("Description", esc(item.get("description", ""))),
+                ("Target Agents", esc(", ".join(item.get("target_agents", [])) or "N/A")),
+                ("Created", esc(relative_time(item.get("created_at")))),
+                ("ID", f"[dim]{esc(item['id'])}[/dim]"),
             ],
             border_style="green",
         )
@@ -479,6 +587,7 @@ def skill_install(
     version: str | None = typer.Option(
         None, "--version", "-V", help="Install a specific version (e.g. '1.0.0'). Defaults to latest."
     ),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """Install a skill by fetching the full skill directory from git.
 
@@ -496,6 +605,43 @@ def skill_install(
         observal registry skill install @sk --harness kiro --scope project
         observal registry skill install 2 --harness cursor --raw > config.json
     """
+    if raw and output == "json":
+        fail(
+            ErrorCategory.VALIDATION,
+            "Raw config output and JSON operation output cannot be combined.",
+            operation="Install skill",
+            resource="output options",
+            remediation="Choose either raw config output or JSON operation output.",
+        )
+    if scope not in {"user", "project"}:
+        fail(
+            ErrorCategory.VALIDATION,
+            f"Unknown skill scope: {scope}.",
+            operation="Install skill",
+            resource="scope",
+            remediation="Choose user or project.",
+        )
+    if harness not in VALID_HARNESSES or "skills" not in HARNESS_CAPABILITIES.get(harness, set()):
+        fail(
+            ErrorCategory.VALIDATION,
+            f"Harness {harness} does not support skills.",
+            operation="Install skill",
+            resource="harness",
+            remediation="Choose a harness with skill support.",
+        )
+    if version:
+        try:
+            Version(version)
+        except InvalidVersion as error:
+            fail(
+                ErrorCategory.VALIDATION,
+                "The requested skill version is invalid.",
+                operation="Install skill",
+                resource=version,
+                remediation="Provide a valid version and retry.",
+                detail=repr(error),
+            )
+    machine_output = raw or output == "json"
     resolved = client.resolve_registry_reference("skill", skill_id)
     listing = client.get(f"/api/v1/skills/{resolved}")
     from observal_cli.lockfile import local_registry_name
@@ -509,7 +655,8 @@ def skill_install(
         scope=scope,
         directory=directory,
     )
-    with spinner(f"Generating {harness} config..."):
+    install_context = nullcontext() if machine_output else spinner(f"Generating {harness} config...")
+    with install_context:
         install_body = {"harness": harness, "scope": scope, "local_name": local_name}
         if version:
             install_body["version"] = version
@@ -521,36 +668,51 @@ def skill_install(
         return
 
     skill_info = snippet.get("skill", {})
+    if not isinstance(skill_info, dict):
+        fail(
+            ErrorCategory.UNAVAILABLE,
+            "The registry returned an invalid skill installation response.",
+            operation="Install skill",
+            resource=skill_id,
+            remediation="Check server health and version compatibility, then retry.",
+        )
 
+    installed_path: Path | None = None
     if not no_write:
-        delivery_mode = skill_info.get("delivery_mode", "git_fetch")
-        if delivery_mode == "registry_direct":
-            install_skill_registry_direct(
-                name=skill_info.get("name", "skill"),
-                skill_md_content=skill_info.get("skill_md_content"),
-                script_content=skill_info.get("script_content"),
-                script_filename=skill_info.get("script_filename"),
-                harness=harness,
-                scope=scope,
+        write_context = redirect_stdout(StringIO()) if output == "json" else nullcontext()
+        with write_context:
+            delivery_mode = skill_info.get("delivery_mode", "git_fetch")
+            if delivery_mode == "registry_direct":
+                installed_path = install_skill_registry_direct(
+                    name=skill_info.get("name", "skill"),
+                    skill_md_content=skill_info.get("skill_md_content"),
+                    script_content=skill_info.get("script_content"),
+                    script_filename=skill_info.get("script_filename"),
+                    harness=harness,
+                    scope=scope,
+                )
+            else:
+                installed_path = install_skill_from_git(
+                    name=skill_info.get("name", "skill"),
+                    git_url=skill_info.get("git_url"),
+                    skill_path=skill_info.get("skill_path", "/"),
+                    git_ref=skill_info.get("git_ref", "main"),
+                    harness=harness,
+                    scope=scope,
+                    skill_md_content=skill_info.get("skill_md_content"),
+                )
+        if installed_path is None:
+            fail(
+                ErrorCategory.UNAVAILABLE,
+                "The skill content could not be installed.",
+                operation="Install skill",
+                resource=skill_id,
+                remediation="Check the skill source and local filesystem, then retry.",
             )
-        else:
-            install_skill_from_git(
-                name=skill_info.get("name", "skill"),
-                git_url=skill_info.get("git_url"),
-                skill_path=skill_info.get("skill_path", "/"),
-                git_ref=skill_info.get("git_ref", "main"),
-                harness=harness,
-                scope=scope,
-                skill_md_content=skill_info.get("skill_md_content"),
-            )
-    else:
-        rprint("[dim]Skill install skipped (--no-write)[/dim]")
 
-    # Write to lock file
-    if not no_write:
+        from observal_cli.lockfile import upsert_standalone
+
         try:
-            from observal_cli.lockfile import upsert_standalone
-
             upsert_standalone(
                 harness,
                 component_type="skill",
@@ -563,13 +725,41 @@ def skill_install(
                 slug=listing.get("slug"),
                 local_name=local_name,
             )
-        except Exception:
-            pass  # Never block install on lockfile failure
+        except PermissionError as error:
+            fail(
+                ErrorCategory.PERMISSION,
+                "The skill was written but its installed state could not be recorded.",
+                operation="Install skill",
+                resource="installed-state lockfile",
+                remediation="Check lockfile ownership and permissions, then retry.",
+                detail=repr(error),
+            )
+        except (OSError, RuntimeError) as error:
+            fail(
+                ErrorCategory.UNAVAILABLE,
+                "The skill was written but its installed state could not be recorded.",
+                operation="Install skill",
+                resource="installed-state lockfile",
+                remediation="Check local storage and retry.",
+                detail=repr(error),
+            )
+    elif output != "json":
+        rprint("[dim]Skill install skipped (no-write mode).[/dim]")
+
+    if output == "json":
+        output_json(
+            {
+                **result,
+                "write_performed": not no_write,
+                "installed_path": str(installed_path) if installed_path else None,
+            }
+        )
+        return
 
     for warning in result.get("warnings") or []:
-        rprint(f"\n[yellow]Warning:[/yellow] {warning}")
+        rprint(f"\n[yellow]Warning:[/yellow] {esc(warning)}")
 
-    rprint(f"\n[bold]Config for {harness}:[/bold]\n")
+    rprint(f"\n[bold]Config for {esc(harness)}:[/bold]\n")
     console.print_json(_json.dumps(snippet, indent=2))
 
 
@@ -628,7 +818,7 @@ def install_skill_registry_direct(
             base = (cwd or Path.cwd()) / ".agents" / "skills"
             dest = base / skill_name
             if not _is_path_safe(dest, base):
-                rprint(f"[red]✗ Unsafe skill name (path traversal detected):[/red] {skill_name!r}")
+                rprint(f"[red]✗ Unsafe skill name (path traversal detected):[/red] {esc(repr(skill_name))}")
                 return None
 
     if not skill_md_content:
@@ -637,14 +827,14 @@ def install_skill_registry_direct(
 
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "SKILL.md").write_text(skill_md_content, encoding="utf-8")
-    rprint(f"[green]\u2713 Wrote skill file:[/green] {dest / 'SKILL.md'}")
+    rprint(f"[green]\u2713 Wrote skill file:[/green] {esc(dest / 'SKILL.md')}")
 
     if script_content and script_filename:
         scripts_dir = dest / "scripts"
         scripts_dir.mkdir(parents=True, exist_ok=True)
         script_path = scripts_dir / script_filename
         if not _is_path_safe(script_path, scripts_dir):
-            rprint(f"[red]\u2717 Unsafe script filename (path traversal):[/red] {script_filename!r}")
+            rprint(f"[red]\u2717 Unsafe script filename (path traversal):[/red] {esc(repr(script_filename))}")
         else:
             script_path.write_text(script_content, encoding="utf-8")
             # Make executable if it looks like a script
@@ -652,7 +842,7 @@ def install_skill_registry_direct(
                 import os
 
                 os.chmod(script_path, 0o755)
-            rprint(f"[green]\u2713 Wrote script:[/green] {script_path}")
+            rprint(f"[green]\u2713 Wrote script:[/green] {esc(script_path)}")
 
     if scope == "project" and not custom_dest:
         _symlink_for_harnesses(cwd or Path.cwd(), dest, skill_name)
@@ -690,7 +880,7 @@ def install_skill_from_git(
             base = (cwd or Path.cwd()) / ".agents" / "skills"
             dest = base / skill_name
             if not _is_path_safe(dest, base):
-                rprint(f"[red]✗ Unsafe skill name (path traversal detected):[/red] {skill_name!r}")
+                rprint(f"[red]✗ Unsafe skill name (path traversal detected):[/red] {esc(repr(skill_name))}")
                 return None
 
     wrote_full_dir = False
@@ -699,7 +889,7 @@ def install_skill_from_git(
         dest.mkdir(parents=True, exist_ok=True)
         wrote_full_dir = _sparse_clone_skill_dir(git_url, skill_path, git_ref, dest)
         if wrote_full_dir:
-            rprint(f"[green]\u2713 Skill directory written:[/green] {dest}")
+            rprint(f"[green]\u2713 Skill directory written:[/green] {esc(dest)}")
             if scope == "project" and not custom_dest:
                 _symlink_for_harnesses(cwd or Path.cwd(), dest, skill_name)
             return dest
@@ -709,7 +899,7 @@ def install_skill_from_git(
     if skill_md_content:
         dest.mkdir(parents=True, exist_ok=True)
         (dest / "SKILL.md").write_text(skill_md_content, encoding="utf-8")
-        rprint(f"[green]\u2713 Wrote skill file (cached):[/green] {dest / 'SKILL.md'}")
+        rprint(f"[green]\u2713 Wrote skill file (cached):[/green] {esc(dest / 'SKILL.md')}")
         return dest
 
     rprint("[yellow]\u26a0 No skill content available to write.[/yellow]")
@@ -727,11 +917,8 @@ def _symlink_for_harnesses(cwd: Path, canonical: Path, skill_name: str) -> None:
         link = skills_dir / skill_name
         if link.exists() or link.is_symlink():
             continue
-        try:
-            link.symlink_to(canonical.resolve())
-            rprint(f"[dim]  → symlinked {link} → {canonical}[/dim]")
-        except OSError:
-            pass  # Non-fatal - Windows without dev mode, etc.
+        link.symlink_to(canonical.resolve())
+        rprint(f"[dim]  → symlinked {esc(link)} → {esc(canonical)}[/dim]")
 
 
 # ── Edit ─────────────────────────────────────────────────────────────────────
@@ -747,6 +934,7 @@ def skill_edit(
     task_type: str | None = typer.Option(None, "--task-type", "-t", help="New task type"),
     git_url: str | None = typer.Option(None, "--git-url", help="New git URL"),
     git_ref: str | None = typer.Option(None, "--git-ref", help="New git ref"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """Edit a draft, rejected, or pending skill submission.
 
@@ -757,19 +945,39 @@ def skill_edit(
     Examples:
         observal registry skill edit my-skill --description "Better desc"
         observal registry skill edit abc123 --from-file updates.json
-        observal registry skill edit @sk --git-url https://github.com/org/new-repo
+        observal registry skill edit @sk --git-url https://github.com/org/new-repo --output json
     """
     resolved = client.resolve_registry_reference("skill", skill_id)
     if from_file:
         try:
             with open(from_file) as f:
                 updates = _json.load(f)
-        except _json.JSONDecodeError as e:
-            rprint(f"[red]Invalid JSON in {from_file}:[/red] {e}")
-            raise typer.Exit(code=1)
-        except FileNotFoundError:
-            rprint(f"[red]File not found:[/red] {from_file}")
-            raise typer.Exit(code=1)
+        except _json.JSONDecodeError as error:
+            fail(
+                ErrorCategory.VALIDATION,
+                "The skill update file is not valid JSON.",
+                operation="Edit skill",
+                resource=from_file,
+                remediation="Correct the JSON and retry.",
+                detail=repr(error),
+            )
+        except FileNotFoundError as error:
+            fail(
+                ErrorCategory.NOT_FOUND,
+                "The skill update file was not found.",
+                operation="Edit skill",
+                resource=from_file,
+                remediation="Provide an existing update file and retry.",
+                detail=repr(error),
+            )
+        if not isinstance(updates, dict):
+            fail(
+                ErrorCategory.VALIDATION,
+                "The skill update file must contain a JSON object.",
+                operation="Edit skill",
+                resource=from_file,
+                remediation="Replace the file contents with a JSON object and retry.",
+            )
     else:
         updates = {}
         if name is not None:
@@ -786,26 +994,39 @@ def skill_edit(
             updates["git_ref"] = git_ref
 
     if not updates:
-        rprint(
-            "[yellow]No changes specified.[/yellow] "
-            "Use --from-file or field options (--name, --description, --git-url, etc.)"
+        fail(
+            ErrorCategory.VALIDATION,
+            "No skill changes were provided.",
+            operation="Edit skill",
+            resource=skill_id,
+            remediation="Provide an update file or one or more field options.",
         )
-        raise typer.Exit(code=1)
-
-    try:
-        client.post(f"/api/v1/skills/{resolved}/start-edit")
-    except Exception as exc:
-        if "409" in str(exc) or "currently being edited" in str(exc):
-            rprint(f"[red]✗ Cannot edit:[/red] {exc}")
-            raise typer.Exit(code=1)
-    try:
-        with spinner("Saving changes..."):
-            result = client.put(f"/api/v1/skills/{resolved}/draft", updates)
-        rprint(f"[green]✓ Updated {result['name']}[/green] (status: {result.get('status', 'unknown')})")
-    except Exception as exc:
+    if task_type is not None and task_type not in VALID_SKILL_TASK_TYPES:
+        fail(
+            ErrorCategory.VALIDATION,
+            f"Unknown skill task type: {task_type}.",
+            operation="Edit skill",
+            resource="task type",
+            remediation=f"Choose one of: {', '.join(VALID_SKILL_TASK_TYPES)}.",
+        )
+    if version is not None:
         try:
-            client.post(f"/api/v1/skills/{resolved}/cancel-edit")
-        except Exception:
-            pass
-        rprint(f"[red]Failed to update:[/red] {exc}")
-        raise typer.Exit(code=1)
+            Version(version)
+        except InvalidVersion as error:
+            fail(
+                ErrorCategory.VALIDATION,
+                "The skill version is invalid.",
+                operation="Edit skill",
+                resource=version,
+                remediation="Provide a valid version and retry.",
+                detail=repr(error),
+            )
+
+    client.post(f"/api/v1/skills/{resolved}/start-edit")
+    save_context = nullcontext() if output == "json" else spinner("Saving changes...")
+    with save_context:
+        result = client.put(f"/api/v1/skills/{resolved}/draft", updates)
+    if output == "json":
+        output_json(result)
+    else:
+        rprint(f"[green]✓ Updated {esc(result['name'])}[/green] (status: {esc(result.get('status', 'unknown'))})")

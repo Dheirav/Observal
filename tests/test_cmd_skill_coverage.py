@@ -16,6 +16,7 @@ from typer.testing import CliRunner
 
 import observal_cli.cmd_skill as skill
 from observal_cli import lockfile
+from observal_cli.errors import CliError, ErrorCategory
 from observal_cli.main import app
 
 runner = CliRunner()
@@ -109,8 +110,8 @@ def test_submit_rejects_draft_and_existing_draft_together(monkeypatch):
         ["registry", "skill", "submit", "--draft", "--submit", "skill-1"],
     )
 
-    assert result.exit_code == 1
-    assert "Cannot use" in result.output
+    assert result.exit_code == 7
+    assert "Draft creation" in result.output
     post.assert_not_called()
 
 
@@ -161,20 +162,20 @@ def test_submit_from_file_draft_preserves_payload_and_publish_target(tmp_path, m
 
 
 @pytest.mark.parametrize(
-    ("filename", "contents", "message"),
+    ("filename", "contents", "exit_code", "message"),
     [
-        ("missing.json", None, "File not found"),
-        ("broken.json", "{not-json", "Invalid JSON"),
+        ("missing.json", None, 5, "not found"),
+        ("broken.json", "{not-json", 7, "not valid JSON"),
     ],
 )
-def test_submit_from_file_reports_read_failures(tmp_path, filename, contents, message):
+def test_submit_from_file_reports_read_failures(tmp_path, filename, contents, exit_code, message):
     source = tmp_path / filename
     if contents is not None:
         source.write_text(contents, encoding="utf-8")
 
     result = runner.invoke(app, ["registry", "skill", "submit", "--from-file", str(source)])
 
-    assert result.exit_code == 1
+    assert result.exit_code == exit_code
     assert message in result.output
 
 
@@ -373,9 +374,9 @@ def test_submit_interactive_collects_agents_and_git_source(monkeypatch):
 @pytest.mark.parametrize(
     ("arguments", "message"),
     [
-        (["--name", "missing-description"], "name and"),
-        (["--name", "bad-task", "--description", "Bad", "--task-type", "unknown"], "Invalid task type"),
-        (["--name", "no-git", "--description", "No Git"], "git-url is required"),
+        (["--name", "missing-description"], "name and description"),
+        (["--name", "bad-task", "--description", "Bad", "--task-type", "unknown"], "Unknown skill task type"),
+        (["--name", "no-git", "--description", "No Git"], "Git URL is required"),
     ],
 )
 def test_submit_flag_validation(arguments, message, monkeypatch):
@@ -385,7 +386,7 @@ def test_submit_flag_validation(arguments, message, monkeypatch):
 
     result = runner.invoke(app, ["registry", "skill", "submit", *arguments])
 
-    assert result.exit_code == 1
+    assert result.exit_code == 7
     assert message in result.output
     post.assert_not_called()
 
@@ -393,14 +394,14 @@ def test_submit_flag_validation(arguments, message, monkeypatch):
 @pytest.mark.parametrize(
     ("option", "filename", "message"),
     [
-        ("--skill-md", "missing-skill.md", "SKILL.md not found"),
-        ("--script", "missing-script.sh", "Script file not found"),
+        ("--skill-md", "missing-skill.md", "SKILL.md file was not found"),
+        ("--script", "missing-script.sh", "script file was not found"),
     ],
 )
 def test_submit_reports_missing_content_files(option, filename, message):
     result = runner.invoke(app, ["registry", "skill", "submit", option, filename])
 
-    assert result.exit_code == 1
+    assert result.exit_code == 5
     assert message in result.output
 
 
@@ -695,7 +696,7 @@ def test_install_command_registry_direct_tracks_project_metadata(monkeypatch):
     )
 
 
-def test_install_command_git_fetch_ignores_lockfile_failure(monkeypatch):
+def test_install_command_reports_lockfile_failure(monkeypatch):
     listing = _skill_item()
     skill_info = {
         "name": "Review Skill",
@@ -720,7 +721,8 @@ def test_install_command_git_fetch_ignores_lockfile_failure(monkeypatch):
         ["registry", "skill", "install", "review", "--harness", "claude-code"],
     )
 
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 9
+    assert "installed state" in result.output and "recorded" in result.output
     git_install.assert_called_once_with(
         name="Review Skill",
         git_url="https://github.com/acme/review",
@@ -971,13 +973,14 @@ def test_symlink_for_existing_harnesses_and_existing_links(tmp_path, capsys):
     assert capsys.readouterr().out.count("symlinked") == 1
 
 
-def test_symlink_failure_is_nonfatal(tmp_path, monkeypatch):
+def test_symlink_failure_is_not_suppressed(tmp_path, monkeypatch):
     canonical = tmp_path / ".agents/skills/review"
     canonical.mkdir(parents=True)
     (tmp_path / ".kiro").mkdir()
     monkeypatch.setattr(Path, "symlink_to", Mock(side_effect=OSError("unsupported")))
 
-    skill._symlink_for_harnesses(tmp_path, canonical, "review")
+    with pytest.raises(OSError, match="unsupported"):
+        skill._symlink_for_harnesses(tmp_path, canonical, "review")
 
     assert not (tmp_path / ".kiro/skills/review").exists()
 
@@ -1052,9 +1055,10 @@ def test_edit_from_file_and_file_failures(tmp_path, monkeypatch):
     )
 
     assert valid.exit_code == 0, valid.output
-    assert missing.exit_code == broken.exit_code == 1
-    assert "File not found" in missing.output
-    assert "Invalid JSON" in broken.output
+    assert missing.exit_code == 5
+    assert broken.exit_code == 7
+    assert "not found" in missing.output
+    assert "not valid JSON" in broken.output
     put.assert_called_once_with("/api/v1/skills/resolved/draft", updates)
 
 
@@ -1065,40 +1069,46 @@ def test_edit_validation_conflict_and_save_cancellation(monkeypatch):
     monkeypatch.setattr(skill.client, "put", Mock())
 
     no_changes = runner.invoke(app, ["registry", "skill", "edit", "skill-1"])
-    assert no_changes.exit_code == 1
-    assert "No changes specified" in no_changes.output
+    assert no_changes.exit_code == 7
+    assert "No skill changes" in no_changes.output
     post.assert_not_called()
 
-    post.side_effect = RuntimeError("409 currently being edited")
+    post.side_effect = CliError(
+        ErrorCategory.CONFLICT,
+        "The skill is currently being edited.",
+        operation="Edit skill",
+        resource="skill registry",
+    )
     conflict = runner.invoke(
         app,
         ["registry", "skill", "edit", "skill-1", "--description", "new"],
     )
-    assert conflict.exit_code == 1
-    assert "Cannot edit" in conflict.output
+    assert conflict.exit_code == 6
+    assert "currently being edited" in conflict.output
 
-    paths = []
-
-    def post_with_cancel_failure(path):
-        paths.append(path)
-        if path.endswith("/cancel-edit"):
-            raise RuntimeError("cancel failed")
-        return {}
-
-    monkeypatch.setattr(skill.client, "post", post_with_cancel_failure)
-    monkeypatch.setattr(skill.client, "put", Mock(side_effect=RuntimeError("save failed")))
+    post.reset_mock(side_effect=True)
+    post.return_value = {}
+    monkeypatch.setattr(skill.client, "post", post)
+    monkeypatch.setattr(
+        skill.client,
+        "put",
+        Mock(
+            side_effect=CliError(
+                ErrorCategory.UNAVAILABLE,
+                "Registry unavailable.",
+                operation="Edit skill",
+                resource="skill registry",
+            )
+        ),
+    )
     failed = runner.invoke(
         app,
         ["registry", "skill", "edit", "skill-1", "--description", "new"],
     )
 
-    assert failed.exit_code == 1
-    assert "Failed to update" in failed.output
-    assert "save failed" in failed.output
-    assert paths == [
-        "/api/v1/skills/resolved/start-edit",
-        "/api/v1/skills/resolved/cancel-edit",
-    ]
+    assert failed.exit_code == 9
+    assert "Registry unavailable" in failed.output
+    post.assert_called_once_with("/api/v1/skills/resolved/start-edit")
 
 
 def test_skill_archive_unarchive_and_confirmation_cancellation(monkeypatch):
@@ -1172,3 +1182,122 @@ def test_skill_co_author_commands_render_and_preserve_http_boundaries(monkeypatc
         call("/api/v1/skills/skill-1/co-authors", json_data={"username": "other"}),
     ]
     delete.assert_called_once_with("/api/v1/skills/skill-1/co-authors/user-1")
+
+
+def test_skill_submit_json_is_noninteractive_and_clean(tmp_path, monkeypatch):
+    skill_md = tmp_path / "SKILL.md"
+    skill_md.write_text("# Skill\n", encoding="utf-8")
+    monkeypatch.setattr(
+        skill.client,
+        "post",
+        Mock(return_value={"id": "skill-1", "name": "review", "status": "pending", "validated": True}),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "registry",
+            "skill",
+            "submit",
+            "--skill-md",
+            str(skill_md),
+            "--delivery-mode",
+            "registry_direct",
+            "--name",
+            "review",
+            "--description",
+            "Review code",
+            "--task-type",
+            "code-review",
+            "--output",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stderr
+    assert json.loads(result.stdout)["id"] == "skill-1"
+
+
+def test_skill_install_json_reports_local_write(tmp_path, monkeypatch):
+    listing = _skill_item()
+    skill_info = {
+        "id": "skill-1",
+        "name": "Review Skill",
+        "version": "1.0.0",
+        "delivery_mode": "registry_direct",
+        "skill_md_content": "# Review",
+    }
+    monkeypatch.setattr(skill.client, "resolve_registry_reference", Mock(return_value="resolved"))
+    monkeypatch.setattr(skill.client, "get", Mock(return_value=listing))
+    monkeypatch.setattr(skill.client, "post", Mock(return_value={"config_snippet": {"skill": skill_info}}))
+    monkeypatch.setattr(lockfile, "local_registry_name", Mock(return_value="review-skill"))
+    installed = tmp_path / "review-skill"
+    monkeypatch.setattr(skill, "install_skill_registry_direct", Mock(return_value=installed))
+    upsert = Mock()
+    monkeypatch.setattr(lockfile, "upsert_standalone", upsert)
+
+    result = runner.invoke(
+        app,
+        ["registry", "skill", "install", "alice/review", "--harness", "pi", "--output", "json"],
+    )
+
+    assert result.exit_code == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["write_performed"] is True
+    assert payload["installed_path"] == str(installed)
+    upsert.assert_called_once()
+
+
+def test_skill_install_does_not_record_failed_write(monkeypatch):
+    listing = _skill_item()
+    skill_info = {"name": "Review Skill", "delivery_mode": "registry_direct", "skill_md_content": None}
+    monkeypatch.setattr(skill.client, "resolve_registry_reference", Mock(return_value="resolved"))
+    monkeypatch.setattr(skill.client, "get", Mock(return_value=listing))
+    monkeypatch.setattr(skill.client, "post", Mock(return_value={"config_snippet": {"skill": skill_info}}))
+    monkeypatch.setattr(lockfile, "local_registry_name", Mock(return_value="review-skill"))
+    monkeypatch.setattr(skill, "install_skill_registry_direct", Mock(return_value=None))
+    upsert = Mock()
+    monkeypatch.setattr(lockfile, "upsert_standalone", upsert)
+
+    result = runner.invoke(app, ["registry", "skill", "install", "review", "--harness", "pi"])
+
+    assert result.exit_code == 9
+    upsert.assert_not_called()
+
+
+def test_skill_edit_json_returns_server_result(monkeypatch):
+    monkeypatch.setattr(skill.client, "resolve_registry_reference", Mock(return_value="resolved"))
+    monkeypatch.setattr(skill.client, "post", Mock(return_value={}))
+    monkeypatch.setattr(
+        skill.client,
+        "put",
+        Mock(return_value={"id": "skill-1", "name": "review", "status": "pending"}),
+    )
+
+    result = runner.invoke(
+        app,
+        ["registry", "skill", "edit", "alice/review", "--description", "Updated", "--output", "json"],
+    )
+
+    assert result.exit_code == 0, result.stderr
+    assert json.loads(result.stdout)["status"] == "pending"
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["list", "--task-type", "coding"],
+        ["list", "--harness", "cursor"],
+        ["install", "review", "--harness", "cursor"],
+        ["install", "review", "--harness", "pi", "--scope", "invalid"],
+        ["install", "review", "--harness", "pi", "--raw", "--output", "json"],
+    ],
+)
+def test_skill_validation_uses_stable_exit_code(arguments, monkeypatch):
+    get = Mock()
+    monkeypatch.setattr(skill.client, "get", get)
+
+    result = runner.invoke(app, ["registry", "skill", *arguments])
+
+    assert result.exit_code == 7
+    get.assert_not_called()
