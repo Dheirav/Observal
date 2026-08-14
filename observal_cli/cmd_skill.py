@@ -297,12 +297,13 @@ def skill_list(
     with fetch_ctx:
         data = client.get("/api/v1/skills", params=params)
     if not data:
+        config.save_last_results([], "skill")
         if output == "json":
             output_json([])
         else:
             rprint("[dim]No skills found.[/dim]")
         return
-    config.save_last_results(data)
+    config.save_last_results(data, "skill")
     if output == "json":
         output_json(data)
         return
@@ -342,12 +343,13 @@ def skill_my(
     with fetch_ctx:
         data = client.get("/api/v1/skills/my")
     if not data:
+        config.save_last_results([], "skill")
         if output == "json":
             output_json([])
         else:
             rprint("[dim]You have no skills.[/dim]")
         return
-    config.save_last_results(data)
+    config.save_last_results(data, "skill")
     if output == "json":
         output_json(data)
         return

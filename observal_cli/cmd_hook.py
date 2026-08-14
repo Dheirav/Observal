@@ -302,12 +302,13 @@ def hook_list(
     with fetch_ctx:
         data = client.get("/api/v1/hooks", params=params)
     if not data:
+        config.save_last_results([], "hook")
         if output == "json":
             output_json([])
         else:
             rprint("[dim]No hooks found.[/dim]")
         return
-    config.save_last_results(data)
+    config.save_last_results(data, "hook")
     if output == "json":
         output_json(data)
         return

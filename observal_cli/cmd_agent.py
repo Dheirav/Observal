@@ -501,9 +501,8 @@ def agent_list(
     total = int(headers.get("x-total-count", str(len(data))))
     total_pages = max(1, (total + limit - 1) // limit)
 
-    if data:
-        # Preserve numeric shorthand after both table and JSON listings.
-        config.save_last_results(data)
+    # Preserve only this agent page for numeric shorthand.
+    config.save_last_results(data, "agent")
 
     if output == "json":
         output_json({"items": data, "total": total, "page": page, "page_size": limit})
@@ -564,9 +563,10 @@ def agent_my(
     with spinner("Fetching your agents..."):
         data = client.get("/api/v1/agents/my")
     if not data:
+        config.save_last_results([], "agent")
         rprint("[dim]You have no agents.[/dim]")
         return
-    config.save_last_results(data)
+    config.save_last_results(data, "agent")
     if output == "json":
         output_json(data)
         return

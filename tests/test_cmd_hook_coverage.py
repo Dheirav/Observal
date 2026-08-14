@@ -488,7 +488,7 @@ def test_list_filters_json_empty_rejects_plain_and_renders_table(monkeypatch):
         },
     )
     resolve_team.assert_called_once_with("platform")
-    assert save.call_count == 2
+    assert save.call_count == 3
 
 
 def test_list_surfaces_http_failure(monkeypatch):
@@ -919,11 +919,11 @@ def test_hook_co_author_commands_render_and_preserve_http_boundaries(monkeypatch
     assert "Added co-author" in added.output
     assert "Co-author removed" in removed.output
     assert get.call_args_list == [
-        call("/hooks/hook-1/co-authors"),
-        call("/hooks/hook-1/co-authors"),
+        call("/api/v1/hooks/hook-1/co-authors"),
+        call("/api/v1/hooks/hook-1/co-authors"),
     ]
     post.assert_called_once_with(
-        "/hooks/hook-1/co-authors",
+        "/api/v1/hooks/hook-1/co-authors",
         json_data={"email": "dev@example.com"},
     )
-    delete.assert_called_once_with("/hooks/hook-1/co-authors/user-1")
+    delete.assert_called_once_with("/api/v1/hooks/hook-1/co-authors/user-1")

@@ -13,7 +13,7 @@ Every file Observal reads or writes on the client (`~/.observal/`) and in each h
 | --- | --- | --- |
 | `config.json` | CLI config (server URL, access token, user info, timeout) | `0600` |
 | `aliases.json` | User-defined shortcuts (`@my-mcp` → UUID) | `0600` |
-| `last_results.json` | Last `list` / `show` output - enables row-number references | `0600` |
+| `last_results.json` | Latest typed list output, enabling row-number references | `0600` |
 | `telemetry_buffer.db` | Durable SQLite outbox for Python session exporters awaiting contiguous server acknowledgement | `0600` |
 | `opencode_session_outbox/` | Per-session durable OpenCode plugin batches and acknowledged line state | `0600` files |
 | `pi_session_outbox/` | Durable pending Pi extension batches | `0600` files |
@@ -57,6 +57,20 @@ Use `observal ops telemetry status` to inspect pending batch count, disk use, ol
 ```
 
 Use anywhere that accepts a compatible reference by prefixing the alias with `@`.
+
+### `last_results.json` schema
+
+```json
+{
+  "item_type": "skill",
+  "ids": ["498c17ac-1234-4567-89ab-cdef01234567"],
+  "names": {
+    "reviewer": "498c17ac-1234-4567-89ab-cdef01234567"
+  }
+}
+```
+
+Each list invocation replaces this cache, including an empty result. Numeric row references are valid only for the component type that produced the latest list.
 
 ## harness-side
 

@@ -305,10 +305,10 @@ def save_aliases(aliases: dict[str, str]):
 # ── Last results cache ───────────────────────────────────
 
 
-def save_last_results(items: list[dict]):
-    """Cache list results. Each item needs 'id' and 'name' keys."""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+def save_last_results(items: list[dict], item_type: str | None = None) -> None:
+    """Cache list results and the registry type that produced them."""
     cache = {
+        "item_type": item_type,
         "ids": [str(item["id"]) for item in items],
         "names": {item.get("name", "").lower(): str(item["id"]) for item in items if item.get("name")},
     }
@@ -316,20 +316,34 @@ def save_last_results(items: list[dict]):
 
 
 def load_last_results() -> dict:
-    if LAST_RESULTS_FILE.exists():
-        data = json.loads(LAST_RESULTS_FILE.read_text())
-        # Handle old format (plain list)
-        if isinstance(data, list):
-            return {"ids": data, "names": {}}
-        return data
-    return {"ids": [], "names": {}}
+    if not LAST_RESULTS_FILE.exists():
+        return {"item_type": None, "ids": [], "names": {}}
+    data = _read_json_object(LAST_RESULTS_FILE, operation="Load CLI list results")
+    ids = data.get("ids")
+    names = data.get("names")
+    item_type = data.get("item_type")
+    if (
+        not isinstance(ids, list)
+        or not all(isinstance(item, str) for item in ids)
+        or not isinstance(names, dict)
+        or not all(isinstance(name, str) and isinstance(item, str) for name, item in names.items())
+        or (item_type is not None and not isinstance(item_type, str))
+    ):
+        fail(
+            ErrorCategory.VALIDATION,
+            "The cached CLI list results are malformed.",
+            operation="Load CLI list results",
+            resource=str(LAST_RESULTS_FILE),
+            remediation="Remove the results cache and run the list command again.",
+        )
+    return {"item_type": item_type, "ids": ids, "names": names}
 
 
 # ── Universal resolver ───────────────────────────────────
 
 
-def resolve_alias(name: str) -> str:
-    """Resolve any reference to a UUID: @alias, row number, name, or passthrough UUID."""
+def resolve_alias(name: str, expected_type: str | None = None) -> str:
+    """Resolve an alias or a type-scoped row number to its stored reference."""
     # @alias
     if name.startswith("@"):
         aliases = load_aliases()
@@ -347,10 +361,26 @@ def resolve_alias(name: str) -> str:
     # Row number from last list (positional shortcut only)
     if name.isdigit():
         cache = load_last_results()
+        cached_type = cache.get("item_type")
+        if expected_type and cached_type != expected_type:
+            fail(
+                ErrorCategory.NOT_FOUND,
+                f"Row {name} is not from the latest {expected_type} list.",
+                operation="Resolve CLI row reference",
+                resource=name,
+                remediation=f"Run the {expected_type} list command and retry with one of its row numbers.",
+            )
         idx = int(name)
         ids = cache.get("ids", [])
         if 1 <= idx <= len(ids):
             return ids[idx - 1]
+        fail(
+            ErrorCategory.NOT_FOUND,
+            f"Row {name} does not exist in the latest list results.",
+            operation="Resolve CLI row reference",
+            resource=name,
+            remediation="Run the relevant list command and retry with one of its row numbers.",
+        )
 
     # Pass names through as-is. The server resolves names natively.
     # Previously we looked up names in a local cache (last_results.json),

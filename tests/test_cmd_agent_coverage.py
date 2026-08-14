@@ -444,7 +444,7 @@ def test_agent_list_table_filters_ids_and_pagination(monkeypatch, _isolated_boun
         params={"limit": 2, "offset": 0, "search": "review", "namespace": "alice", "team_id": "team-1"},
     )
     resolve_team.assert_called_once_with("@platform")
-    _isolated_boundaries.save_last_results.assert_called_once_with(data)
+    _isolated_boundaries.save_last_results.assert_called_once_with(data, "agent")
 
     get_with_headers.reset_mock()
     get_with_headers.return_value = (data[:1], {"x-total-count": "3"})
@@ -534,7 +534,7 @@ def test_agent_my_empty_json_rejects_plain_and_renders_table(monkeypatch, _isola
     assert table.exit_code == 0, table.output
     assert "My Agents (1)" in table.output
     assert "pending" in table.output
-    assert _isolated_boundaries.save_last_results.call_count == 2
+    assert _isolated_boundaries.save_last_results.call_count == 3
 
 
 def test_agent_show_json_and_full_rendering(monkeypatch):
@@ -1104,7 +1104,7 @@ def test_agent_transfer_owner_validation_cancellation_and_success(monkeypatch):
     monkeypatch.setattr(agent.client, "post", post)
 
     invalid = _invoke("transfer-owner", "reviewer", "@", "--yes")
-    assert invalid.exit_code == 1
+    assert invalid.exit_code == 7
     assert "username is required" in invalid.output
 
     monkeypatch.setattr(typer, "confirm", Mock(return_value=False))
@@ -1139,12 +1139,12 @@ def test_agent_co_author_commands_render_and_preserve_http_boundaries(monkeypatc
     assert any(cell.strip() == "no" for line in listed.output.splitlines() for cell in line.split("│"))
     assert "Added co-author" in added.output
     assert "Co-author removed" in removed.output
-    get.assert_called_once_with("/agents/agent-1/co-authors")
+    get.assert_called_once_with("/api/v1/agents/agent-1/co-authors")
     post.assert_called_once_with(
-        "/agents/agent-1/co-authors",
+        "/api/v1/agents/agent-1/co-authors",
         json_data={"email": "dev@example.test"},
     )
-    delete.assert_called_once_with("/agents/agent-1/co-authors/user-1")
+    delete.assert_called_once_with("/api/v1/agents/agent-1/co-authors/user-1")
 
     get.return_value = []
     empty = _invoke("co-authors", "list", "agent-1")

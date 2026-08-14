@@ -948,6 +948,7 @@ def _list_impl(category, search, limit, sort, output, interactive=False, namespa
         data = client.get("/api/v1/mcps", params=params)
 
     if not data:
+        config.save_last_results([], "mcp")
         if output == "json":
             output_json([])
         else:
@@ -971,7 +972,7 @@ def _list_impl(category, search, limit, sort, output, interactive=False, namespa
     data = sorted(data, key=lambda x: x.get(sk, ""))[:limit]
 
     # Cache IDs for numeric shorthand
-    config.save_last_results(data)
+    config.save_last_results(data, "mcp")
 
     if output == "json":
         output_json(data)
@@ -1333,12 +1334,13 @@ def mcp_my(
     with fetch_ctx:
         data = client.get("/api/v1/mcps/my")
     if not data:
+        config.save_last_results([], "mcp")
         if output == "json":
             output_json([])
         else:
             rprint("[dim]You have no MCP servers.[/dim]")
         return
-    config.save_last_results(data)
+    config.save_last_results(data, "mcp")
     if output == "json":
         output_json(data)
         return
