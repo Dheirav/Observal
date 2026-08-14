@@ -126,9 +126,12 @@ Read from the environment at invocation time. Override values in `~/.observal/co
 | `OBSERVAL_ACCESS_TOKEN` | from `~/.observal/config.json` | Access token (preferred for CI)                             |
 | `OBSERVAL_API_KEY`      | from `~/.observal/config.json` | API key alias for `OBSERVAL_ACCESS_TOKEN` |
 | `OBSERVAL_TOKEN`        | from `~/.observal/config.json` | CI token alias with highest legacy precedence |
+| `OBSERVAL_PASSWORD`     | unset                          | Password for credential or bootstrap login |
+| `OBSERVAL_CURRENT_PASSWORD` | unset                      | Current password for non-interactive password changes |
+| `OBSERVAL_NEW_PASSWORD` | unset                          | New password for non-interactive or mandatory password changes |
 | `OBSERVAL_TIMEOUT`      | `30`                           | HTTP timeout in seconds |
 
-The three token variables support `OBSERVAL_ACCESS_TOKEN_FILE`, `OBSERVAL_API_KEY_FILE`, and `OBSERVAL_TOKEN_FILE`. When multiple aliases are present, the legacy precedence remains `OBSERVAL_TOKEN`, then `OBSERVAL_API_KEY`, then `OBSERVAL_ACCESS_TOKEN`.
+The token and password variables support corresponding `_FILE` forms. Configuring both a direct variable and its file form is an error. When multiple token aliases are present, the legacy precedence remains `OBSERVAL_TOKEN`, then `OBSERVAL_API_KEY`, then `OBSERVAL_ACCESS_TOKEN`.
 
 Example CI usage:
 

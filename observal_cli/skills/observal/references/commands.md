@@ -71,7 +71,7 @@ Every command available in the installed CLI. This block is generated from the T
 - `observal auth login`: Connect to Observal.
 - `observal auth logout`: Clear saved credentials.
 - `observal auth whoami`: Show current authenticated user.
-- `observal auth status`: Check server connectivity and health.
+- `observal auth status`: Check authenticated server connectivity and local outbox health.
 - `observal auth change-password`: Change your password.
 - `observal auth set-username`: Set or update your username.
 

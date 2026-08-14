@@ -83,7 +83,7 @@ class CliError(click.exceptions.Exit):
     detail: str | None = None
 
     def __post_init__(self) -> None:
-        super().__init__(int(ExitCode.UNEXPECTED))
+        super().__init__(int(_EXIT_CODES[self.category]))
 
     @property
     def contract_exit_code(self) -> int:
@@ -139,6 +139,14 @@ def json_errors_requested(args: tuple[str, ...] | list[str] | None = None) -> bo
 def debug_requested(args: tuple[str, ...] | list[str] | None = None) -> bool:
     values = tuple(args) if args is not None else _invocation_args.get()
     return "--debug" in values
+
+
+def _json_stream_requested(command: click.Command, args: tuple[str, ...]) -> bool:
+    return (
+        _command_path(command, args) == "observal auth login"
+        and any(value in {"--sso", "--saml"} for value in args)
+        and json_errors_requested(args)
+    )
 
 
 def emit_error(error: CliError, *, json_mode: bool | None = None, debug: bool | None = None) -> None:
@@ -231,7 +239,7 @@ class ErrorHandlingGroup(TyperGroup):
         boundary_token = _boundary_active.set(True)
         json_token = _json_error_mode.set(_uses_json_output(self, invocation))
         operation = f"Run {_command_path(self, invocation)}"
-        captured = StringIO() if _json_error_mode.get() else None
+        captured = StringIO() if _json_error_mode.get() and not _json_stream_requested(self, invocation) else None
         output_context = redirect_stdout(captured) if captured is not None else nullcontext()
         try:
             with output_context:

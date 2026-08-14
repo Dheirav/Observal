@@ -176,31 +176,41 @@ def load() -> dict:
     return cfg
 
 
-def save(data: dict):
-    """Save config to disk (safely ignoring environment variables)."""
+def _write_config(data: dict) -> None:
+    """Atomically write config with restrictive permissions."""
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-
-        # Read strictly from disk so we don't accidentally save env vars
-        existing = {}
-        if CONFIG_FILE.exists():
-            existing = json.loads(CONFIG_FILE.read_text())
-
-        existing.update(data)
-
-        # Write with restrictive permissions from the start (contains API key)
+        temporary = CONFIG_FILE.with_name(f"{CONFIG_FILE.name}.tmp")
         old_umask = os.umask(0o077)
         try:
-            CONFIG_FILE.write_text(json.dumps(existing, indent=2))
+            temporary.write_text(json.dumps(data, indent=2))
+            temporary.replace(CONFIG_FILE)
         finally:
             os.umask(old_umask)
+            temporary.unlink(missing_ok=True)
     except PermissionError as exc:
-        # Typically ~/.observal was created root-owned by a Docker bind mount
         raise SystemExit(
             f"Cannot write {exc.filename or CONFIG_FILE}: permission denied.\n"
             f"If {CONFIG_DIR} is owned by root (e.g. created by Docker before it existed), fix it with:\n"
             f'  sudo chown -R "$USER" "{CONFIG_DIR}"'
         ) from exc
+
+
+def save(data: dict):
+    """Save config to disk without persisting environment overrides."""
+    existing = json.loads(CONFIG_FILE.read_text()) if CONFIG_FILE.exists() else {}
+    existing.update(data)
+    _write_config(existing)
+
+
+def remove(*keys: str) -> None:
+    """Remove keys from the on-disk config without persisting environment overrides."""
+    if not CONFIG_FILE.exists():
+        return
+    existing = json.loads(CONFIG_FILE.read_text())
+    for key in keys:
+        existing.pop(key, None)
+    _write_config(existing)
 
 
 def get_timeout() -> int:

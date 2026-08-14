@@ -75,6 +75,7 @@ OPERATION_LABELS = {
     "agent_unarchive": "Restore agent",
     "agent_versions": "List agent versions",
     "approve_join_request": "Approve teamspace join request",
+    "change_password": "Change password",
     "create_invite": "Create teamspace invite",
     "create_team": "Create teamspace",
     "delete_team": "Delete teamspace",

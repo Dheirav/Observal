@@ -83,11 +83,11 @@ def _request_id(response: httpx.Response) -> str | None:
 
 def _safe_detail(response: httpx.Response) -> str | None:
     if "application/json" not in response.headers.get("content-type", "").lower():
-        return response.text.strip()[:500] or None
+        return None
     try:
         data = response.json()
     except (ValueError, UnicodeDecodeError):
-        return response.text.strip()[:500] or None
+        return None
     detail = data.get("detail") if isinstance(data, dict) else None
     return detail.strip()[:500] if isinstance(detail, str) and detail.strip() else None
 
@@ -509,7 +509,7 @@ def post(
     operation: str | None = None,
     resource: str | None = None,
 ) -> dict:
-    optic.trace("path={}, json_data={}", path, json_data)
+    optic.trace("path={}, has_json_data={}", path, json_data is not None)
     operation, resource = _error_context(
         operation,
         resource,
@@ -527,7 +527,7 @@ def put(
     operation: str | None = None,
     resource: str | None = None,
 ) -> dict:
-    optic.trace("path={}, json_data={}", path, json_data)
+    optic.trace("path={}, has_json_data={}", path, json_data is not None)
     operation, resource = _error_context(
         operation,
         resource,
@@ -545,7 +545,7 @@ def patch(
     operation: str | None = None,
     resource: str | None = None,
 ) -> dict:
-    optic.trace("path={}, json_data={}", path, json_data)
+    optic.trace("path={}, has_json_data={}", path, json_data is not None)
     operation, resource = _error_context(
         operation,
         resource,
