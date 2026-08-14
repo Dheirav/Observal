@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0
 name: observal
 command: observal
-description: "Core Observal CLI operations: pull agents into your harness, scan installed components, diagnose and patch harness configs, authenticate, manage CLI settings, get components recommended for you, and discuss agent insights. Use when the user wants to install an agent, check setup, login, configure the CLI, ask what they should install, or ask how an agent is doing."
+description: "Core Observal CLI operations: pull agents into your harness, scan installed components, diagnose and patch harness configs, authenticate, manage CLI settings, work through Inbox, get components recommended for you, and discuss agent insights. Use when the user wants to install an agent, check setup, login, configure the CLI, review their work feed, ask what they should install, or ask how an agent is doing."
 version: 2.5.0
 owner: observal
 ---
@@ -88,6 +88,17 @@ observal outdated --harness claude-code --output json --no-report
 ```
 
 Reads `~/.observal/lockfile.json` and compares each supported pin against the active registry. JSON returns `items`, `summary`, and `report`; use it for automation. Findings also land in your inbox as `update_available` items; `--no-report` suppresses that write but still reads the registry. Reporting is best-effort and its status is always exposed.
+
+---
+## Procedure: Inbox
+
+```bash
+observal inbox list --state open --action-required --output json
+observal inbox show ITEM_UUID --output json
+observal inbox done ITEM_UUID --output json
+observal inbox read-all --kind update_available --yes --output json
+```
+Use list UUIDs. Reading does not resolve; use `done`, `dismiss`, or `reopen` only as requested. Confirm an `action_command` before running it. JSON `read-all` requires `--yes` and affects only its filters.
 
 ---
 ## Procedure: Scan harnesses
@@ -196,20 +207,7 @@ observal ops insights show AGENT_NAME latest --section suggestions --output json
 observal ops insights show AGENT_NAME latest --section friction_analysis --output json
 ```
 
-Available sections:
-
-- `at_a_glance`: health, working areas, blockers, quick win
-- `what_they_work_on`: project areas and session counts
-- `interaction_style`: how users interact with the agent
-- `usage_patterns`: session shape, tools, prompts, duration
-- `what_works`: strengths backed by sessions
-- `friction_analysis`: recurring failure modes and examples
-- `suggestions`: config additions, features to try, usage changes
-- `usage_cost_analysis`: cost, cache, and model efficiency
-- `version_comparison`: current version compared with a baseline
-- `regression_detection`: what improved or degraded versus previous data
-- `on_the_horizon`: higher leverage workflow opportunities
-- `fun_ending`: memorable qualitative moment
+Sections: `at_a_glance`, `what_they_work_on`, `interaction_style`, `usage_patterns`, `what_works`, `friction_analysis`, `suggestions`, `usage_cost_analysis`, `version_comparison`, `regression_detection`, `on_the_horizon`, and `fun_ending`.
 
 For broad questions, run full `show` JSON and summarize health, top friction, top strengths, cost, and next actions. For narrow questions, fetch the specific section. If no completed report exists, offer to generate one:
 

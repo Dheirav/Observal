@@ -32,6 +32,8 @@
 * [observal auth](cli/auth.md)
 * [observal config](cli/config.md)
 * [observal scan](cli/scan.md)
+* [observal outdated](cli/outdated.md)
+* [observal inbox](cli/inbox.md)
 * [observal agent pull](cli/pull.md)
 * [observal registry](cli/registry.md)
 * [observal registry recommend](cli/recommend.md)
