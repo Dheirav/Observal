@@ -134,7 +134,7 @@ Vite 6 SPA with TanStack Router, not Next.js. `web/AGENTS.md` is the authoritati
 observal
 ├── scan                     # read-only discovery of what's installed
 ├── outdated                 # installed components with newer versions available
-├── reconcile                # push local session JSONL to server for rich traces
+├── reconcile                # backfill sessions missed by automatic delivery
 ├── auth                     # login, logout, whoami, status, change-password, set-username
 ├── config                   # show, set, path, alias, aliases
 ├── registry                 # component parent group

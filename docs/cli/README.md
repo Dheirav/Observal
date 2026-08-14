@@ -19,6 +19,7 @@ Complete reference for the `observal` CLI. Every subcommand has its own page; th
 | [`observal config`](config.md)                                                             | Local CLI configuration, aliases                                                      |
 | [`observal scan`](scan.md)                                                                 | Discover what's installed across your harnesses (read-only)                           |
 | [`observal outdated`](outdated.md)                                                         | Compare installed agent and component versions with the active registry               |
+| [`observal reconcile`](reconcile.md)                                                       | Backfill sessions missed by automatic telemetry delivery                              |
 | [`observal inbox`](inbox.md)                                                               | Read and update the signed-in user's work and event feed                               |
 | [`observal agent pull`](pull.md)                                                           | Install a published agent into a harness                                               |
 | [`observal registry`](registry.md)                                                         | Publish and manage components (MCP / skill / hook / prompt / sandbox)                 |
@@ -29,7 +30,7 @@ Complete reference for the `observal` CLI. Every subcommand has its own page; th
 | [`observal team`](team.md)                                                                 | Manage teamspaces, members, join requests, and invitations                            |
 | [`observal ops`](ops.md)                                                                   | Observability and operations (sessions, telemetry, logs, insights)                    |
 | [`observal admin`](admin.md)                                                               | Core administration and submission review                                             |
-| [`observal doctor support`](support.md)                                                | Generate and inspect redacted diagnostic bundles                                      |
+| [`observal doctor support`](support.md)                                                   | Generate and inspect redacted diagnostic bundles                                      |
 | [`observal doctor`](doctor.md)                                                             | Diagnose harness compatibility; `doctor patch` applies instrumentation                |
 | [`observal migrate`](https://github.com/Observal/Observal/blob/main/docs/cli/migrate.md) | Export/import PostgreSQL registry (shallow copy) and ClickHouse telemetry (deep copy) |
 | [`observal self`](self.md)                                                                 | Upgrade or downgrade the CLI                                                          |

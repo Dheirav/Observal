@@ -33,6 +33,7 @@
 * [observal config](cli/config.md)
 * [observal scan](cli/scan.md)
 * [observal outdated](cli/outdated.md)
+* [observal reconcile](cli/reconcile.md)
 * [observal inbox](cli/inbox.md)
 * [observal agent pull](cli/pull.md)
 * [observal registry](cli/registry.md)
