@@ -22,7 +22,7 @@ Complete reference for the `observal` CLI. Every subcommand has its own page; th
 | [`observal agent pull`](pull.md)                                                           | Install a published agent into an harness                                             |
 | [`observal registry`](registry.md)                                                         | Publish and manage components (MCP / skill / hook / prompt / sandbox)                 |
 | [`observal component`](component.md)                                                       | Manage component versions                                                             |
-| [`observal models`](models.md)                                                             | Browse and manage model configurations                                                |
+| [`observal registry models`](models.md)                                                    | Inspect packaged harness model catalogs                                               |
 | [`observal agent`](agent.md)                                                               | Author and publish agents                                                             |
 | [`observal ops`](ops.md)                                                                   | Observability and operations (sessions, events, metrics, feedback)                    |
 | [`observal admin`](admin.md)                                                               | Admin operations (settings, users, review, security)                                  |

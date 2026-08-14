@@ -12,7 +12,7 @@ from rich import print as rprint
 from rich.table import Table
 
 from observal_cli import model_catalog
-from observal_cli.render import OutputMode, output_json
+from observal_cli.render import OutputMode, esc, output_json
 
 models_app = typer.Typer(
     name="models",
@@ -27,13 +27,14 @@ models_app = typer.Typer(
 )
 
 
-def _emit(harness: str | None, output: OutputMode) -> None:
+def _emit_models(harness: str | None, output: OutputMode) -> None:
     try:
-        rows = model_catalog.fetch_catalog(harness=harness).get("models") or []
+        catalog = model_catalog.fetch_catalog(harness=harness)
     except ValueError as exc:
         raise typer.BadParameter(str(exc), param_hint="harness") from exc
+    rows = catalog.get("models") or []
     if output == "json":
-        output_json(rows)
+        output_json(catalog)
         return
     table = Table(show_header=True, header_style="bold cyan")
     table.add_column("harness")
@@ -41,9 +42,14 @@ def _emit(harness: str | None, output: OutputMode) -> None:
     table.add_column("kind")
     table.add_column("display")
     for row in rows:
-        table.add_row(row["harness"], row["model_id"], row.get("kind", "exact"), row.get("display_name", ""))
+        table.add_row(
+            esc(row["harness"]),
+            esc(row["model_id"]),
+            esc(row.get("kind", "exact")),
+            esc(row.get("display_name", "")),
+        )
     rprint(table)
-    rprint(f"[dim]source: harness-registry, count: {len(rows)}[/dim]")
+    rprint(f"[dim]source: {esc(catalog.get('source', 'harness-registry'))}, count: {len(rows)}[/dim]")
 
 
 @models_app.callback(invoke_without_command=True)
@@ -53,10 +59,7 @@ def models(
     output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     if ctx.invoked_subcommand is None:
-        if harness == "--help":
-            rprint(ctx.get_help())
-            raise typer.Exit()
-        _emit(harness, output)
+        _emit_models(harness, output)
 
 
 @models_app.command("list")
@@ -71,4 +74,4 @@ def list_models(
       observal registry models list --harness pi
       observal registry models list --output json
     """
-    _emit(harness, output)
+    _emit_models(harness, output)
