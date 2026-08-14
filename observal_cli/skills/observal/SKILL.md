@@ -146,17 +146,16 @@ observal doctor cleanup --harness kiro
 
 ```bash
 observal auth login
-observal auth login --server https://observal.example.com
-observal auth login --sso
-observal auth login --email me@x.com --password '...'
+OBSERVAL_PASSWORD_FILE=/path/to/password observal auth login --server https://observal.example.com --email me@x.com --output json
+observal auth login --sso --output json
 observal auth whoami --output json
-observal auth status
-observal auth logout
-observal auth change-password
-observal auth set-username new-handle
+observal auth status --output json
+observal auth logout --output json
+OBSERVAL_CURRENT_PASSWORD_FILE=/path/to/current OBSERVAL_NEW_PASSWORD_FILE=/path/to/new observal auth change-password --output json
+observal auth set-username new-handle --output json
 ```
 
-On a fresh server, `auth login` auto-bootstraps an admin from localhost (no prompts needed). A username becomes the user's registry namespace and cannot be changed after the user owns an agent or component.
+Never place a password directly in command arguments. JSON credential login requires the server, email, and password environment or file input. Fresh-server bootstrap also requires `--name`. JSON SSO emits an `authorization_required` event followed by an `authenticated` event. A username becomes the user's registry namespace and cannot be changed after the user owns an agent or component.
 
 ---
 
