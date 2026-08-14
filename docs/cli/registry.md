@@ -765,7 +765,13 @@ observal registry sandbox edit <id-or-name> [OPTIONS]
 ```bash
 observal registry sandbox edit my-sandbox --image node:20-alpine
 observal registry sandbox edit abc123 --from-file updates.json
-observal registry sandbox edit @env --runtime-type docker --version 2.0.0
+observal registry sandbox edit @env --runtime-type docker --version 2.0.0 --output json
 ```
 
 ---
+
+## Component versions
+
+Use `observal registry version publish` and `observal registry version list` for all five component types. Publication supports direct JSON results; history supports explicit pagination.
+
+See [`observal registry version`](component.md) for the complete contract.

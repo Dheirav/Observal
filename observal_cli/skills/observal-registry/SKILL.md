@@ -184,12 +184,12 @@ observal registry sandbox edit NAME --image python:3.12-slim --output json
 ## Procedure: Publish Component Version
 
 ```bash
-observal registry version publish mcp NAME --version 1.2.0 --description 'What changed'
-observal registry version publish skill NAME --version 0.3.0 --description 'New tasks'
-observal registry version publish hook NAME --version 1.0.1 --description 'Bug fix'
-observal registry version publish prompt NAME --version 2.0.0 --description 'Rewrite'
-observal registry version publish sandbox NAME --version 1.1.0 --description 'New image' --extra '{"runtime_type":"docker","image":"python:3.12-slim","resource_limits":{"timeout":60}}'
-observal registry version publish sandbox NAME --version 1.2.0 --description 'LXC profile' --extra '{"runtime_type":"lxc","image":"images:ubuntu/22.04","runtime_config":{"profile":"default"}}'
+observal registry version publish mcp NAME --version 1.2.0 --description 'What changed' --output json
+observal registry version publish skill NAME --version 0.3.0 --description 'New tasks' --output json
+observal registry version publish hook NAME --version 1.0.1 --description 'Bug fix' --output json
+observal registry version publish prompt NAME --version 2.0.0 --description 'Rewrite' --output json
+observal registry version publish sandbox NAME --version 1.1.0 --description 'New image' --extra '{"runtime_type":"docker","image":"python:3.12-slim","resource_limits":{"timeout":60}}' --output json
+observal registry version publish sandbox NAME --version 1.2.0 --description 'LXC profile' --extra '{"runtime_type":"lxc","image":"images:ubuntu/22.04","runtime_config":{"profile":"default"}}' --output json
 
 observal registry version list mcp NAME --output json
 ```
