@@ -79,7 +79,7 @@ Status reports the server URL, authentication state, health latency, and local t
 observal auth change-password
 ```
 
-Human mode prompts for the current and new passwords. JSON mode reads `OBSERVAL_CURRENT_PASSWORD` and `OBSERVAL_NEW_PASSWORD`; both support corresponding `_FILE` forms.
+Both modes read `OBSERVAL_CURRENT_PASSWORD` and `OBSERVAL_NEW_PASSWORD`, including their corresponding `_FILE` forms. Human mode prompts for missing values; JSON mode requires both values and never prompts.
 
 ```bash
 OBSERVAL_CURRENT_PASSWORD_FILE=/run/secrets/current-password \

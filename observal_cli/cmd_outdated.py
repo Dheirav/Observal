@@ -348,9 +348,21 @@ def _report_to_inbox(outdated_items: list[dict]) -> dict:
         status["error"] = _error_payload(error)
         return status
 
+    counters = None if not isinstance(result, dict) else (result.get("created", 0), result.get("superseded", 0))
+    if counters is None or any(type(value) is not int or value < 0 for value in counters):
+        error = CliError(
+            ErrorCategory.UNAVAILABLE,
+            "The inbox returned an invalid report response.",
+            operation="Report outdated items",
+            resource="user inbox",
+            remediation="Check server health and version compatibility, then retry.",
+        )
+        status["succeeded"] = False
+        status["error"] = _error_payload(error)
+        return status
+
     status["succeeded"] = True
-    status["created"] = int(result.get("created", 0))
-    status["superseded"] = int(result.get("superseded", 0))
+    status["created"], status["superseded"] = counters
     return status
 
 

@@ -107,6 +107,7 @@ Use `--no-report` when no Inbox mutation is wanted. This does not make the comma
 | Code | Meaning |
 | --- | --- |
 | `0` | Comparison completed, including empty, current, outdated, or missing results |
+| `1` | Unexpected or uncategorized failure, including an unexpected reporting failure |
 | `2` | Invalid command syntax or output mode |
 | `3` | Authentication is missing or invalid |
 | `4` | Registry or filesystem permission denied |

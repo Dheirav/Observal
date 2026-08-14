@@ -179,6 +179,25 @@ def test_submit_from_file_reports_read_failures(tmp_path, filename, contents, ex
     assert message in result.output
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"name": "bad-task", "task_type": "unknown", "version": "1.0.0"},
+        {"name": "bad-version", "task_type": "general", "version": "not-a-version"},
+    ],
+)
+def test_submit_from_file_validates_payload_fields(payload, tmp_path, monkeypatch):
+    source = tmp_path / "skill.json"
+    source.write_text(json.dumps(payload), encoding="utf-8")
+    post = Mock()
+    monkeypatch.setattr(skill.client, "post", post)
+
+    result = runner.invoke(app, ["registry", "skill", "submit", "--from-file", str(source)])
+
+    assert result.exit_code == 7
+    post.assert_not_called()
+
+
 def test_submit_registry_direct_parses_metadata_and_script(tmp_path, monkeypatch):
     skill_md = tmp_path / "SKILL.md"
     skill_md.write_text(
@@ -1031,7 +1050,8 @@ def test_edit_flags_acquire_lock_and_send_updates(monkeypatch):
 
 
 def test_edit_from_file_and_file_failures(tmp_path, monkeypatch):
-    monkeypatch.setattr(skill.client, "resolve_registry_reference", Mock(return_value="resolved"))
+    resolve = Mock(return_value="resolved")
+    monkeypatch.setattr(skill.client, "resolve_registry_reference", resolve)
     monkeypatch.setattr(skill.client, "post", Mock(return_value={}))
     put = Mock(return_value={"name": "file-edit", "status": "pending"})
     monkeypatch.setattr(skill.client, "put", put)
@@ -1059,7 +1079,21 @@ def test_edit_from_file_and_file_failures(tmp_path, monkeypatch):
     assert broken.exit_code == 7
     assert "not found" in missing.output
     assert "not valid JSON" in broken.output
+    resolve.assert_called_once_with("skill", "skill-1")
     put.assert_called_once_with("/api/v1/skills/resolved/draft", updates)
+
+
+@pytest.mark.parametrize("updates", [{"task_type": "unknown"}, {"version": "not-a-version"}])
+def test_edit_from_file_validates_before_registry_resolution(updates, tmp_path, monkeypatch):
+    source = tmp_path / "updates.json"
+    source.write_text(json.dumps(updates), encoding="utf-8")
+    resolve = Mock()
+    monkeypatch.setattr(skill.client, "resolve_registry_reference", resolve)
+
+    result = runner.invoke(app, ["registry", "skill", "edit", "alice/review", "--from-file", str(source)])
+
+    assert result.exit_code == 7
+    resolve.assert_not_called()
 
 
 def test_edit_validation_conflict_and_save_cancellation(monkeypatch):

@@ -144,6 +144,19 @@ def test_config_save_sets_permissions(tmp_path):
         assert mode == 0o600
 
 
+def test_config_write_permission_failure_is_categorized(monkeypatch):
+    from observal_cli import config
+
+    denied = PermissionError(13, "denied", str(config.CONFIG_FILE))
+    monkeypatch.setattr(config, "_write_json", MagicMock(side_effect=denied))
+
+    with pytest.raises(CliError) as error:
+        config._write_config({"server_url": "http://localhost:8000"})
+
+    assert error.value.category is ErrorCategory.PERMISSION
+    assert error.value.operation == "Save CLI configuration"
+
+
 def test_render_error_helper():
     """render.error() prints formatted error."""
     from observal_cli.render import error, success, warning
@@ -193,15 +206,20 @@ def test_client_builds_bearer_and_version_headers(monkeypatch):
 
 
 def test_request_requires_authenticated_configuration(monkeypatch):
-    get_config = MagicMock(side_effect=typer.Exit(1))
+    failure = CliError(
+        ErrorCategory.AUTH,
+        "Authentication is required.",
+        operation="Load authenticated CLI configuration",
+    )
+    get_config = MagicMock(side_effect=failure)
     enforce = MagicMock()
     monkeypatch.setattr(client.config, "get_or_exit", get_config)
     monkeypatch.setattr(client, "_enforce_version_once", enforce)
 
-    with pytest.raises(typer.Exit) as error:
+    with pytest.raises(CliError) as error:
         client.get("/api/v1/items")
 
-    assert error.value.exit_code == 1
+    assert error.value is failure
     get_config.assert_called_once_with()
     enforce.assert_not_called()
 
@@ -287,6 +305,17 @@ def test_http_statuses_map_to_stable_categories(status, expected_category, expec
     assert raised.value.request_id == "request-123"
     assert raised.value.http_status == status
     assert raised.value.remediation
+
+
+@pytest.mark.parametrize("path", ["/api/v1/teams/by-handle/platform", "/api/v1/insights/report-id"])
+def test_not_found_has_generic_remediation_for_non_registry_resources(path):
+    response = _response(404, data={"detail": "missing"})
+    error = httpx.HTTPStatusError("request failed", request=response.request, response=response)
+
+    with pytest.raises(CliError) as raised:
+        client._handle_error(error, path, operation="Show resource", resource="resource")
+
+    assert raised.value.remediation == "Check the identifier and retry."
 
 
 def test_not_found_has_browse_remediation():
@@ -397,6 +426,7 @@ def test_json_error_mode_distinguishes_format_from_file_destination():
 
     root = get_command(app)
     assert _uses_json_output(root, ("agent", "show", "reviewer", "--output", "json")) is True
+    assert _uses_json_output(root, ("agent", "show", "reviewer", "-ojson")) is True
     assert _uses_json_output(root, ("doctor", "support", "bundle", "--output", "json")) is True
     assert _uses_json_output(root, ("doctor", "support", "bundle", "--file", "json")) is False
 

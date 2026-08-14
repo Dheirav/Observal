@@ -233,7 +233,17 @@ def load() -> dict:
 
 
 def _write_config(data: dict) -> None:
-    _write_json(CONFIG_FILE, data)
+    try:
+        _write_json(CONFIG_FILE, data)
+    except PermissionError as error:
+        fail(
+            ErrorCategory.PERMISSION,
+            f"Cannot write {error.filename or CONFIG_FILE}: permission denied.",
+            operation="Save CLI configuration",
+            resource=str(error.filename or CONFIG_FILE),
+            remediation=f'If {CONFIG_DIR} is owned by root, run: sudo chown -R "$USER" "{CONFIG_DIR}"',
+            detail=repr(error),
+        )
 
 
 def save(data: dict):

@@ -267,8 +267,10 @@ try:
     server_app.add_typer(migrate_app, name="migrate")
     app.add_typer(server_app, name="server")
 except ImportError:
-    # server deps not installed; register migrate at top level as fallback
-    app.add_typer(migrate_app, name="migrate")
+    # Server dependencies are optional, but the documented migration path stays stable.
+    fallback_server_app = typer.Typer(help="Server migration tools")
+    fallback_server_app.add_typer(migrate_app, name="migrate")
+    app.add_typer(fallback_server_app, name="server")
 
 
 def _show_update_banner() -> None:

@@ -45,7 +45,7 @@ invite_app = typer.Typer(
         "Examples:\n"
         "  observal team invite list platform-tools\n"
         "  observal team invite create platform-tools\n"
-        "  observal team invite revoke platform-tools INVITE_ID"
+        "  observal team invite revoke platform-tools 550e8400-e29b-41d4-a716-446655440000"
     ),
     no_args_is_help=True,
 )

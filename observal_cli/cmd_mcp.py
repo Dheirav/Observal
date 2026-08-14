@@ -26,7 +26,7 @@ from rich.table import Table
 from observal_cli import client, config
 from observal_cli.analyzer import analyze_local
 from observal_cli.constants import VALID_HARNESSES, VALID_MCP_CATEGORIES
-from observal_cli.errors import ErrorCategory, fail
+from observal_cli.errors import ErrorCategory, fail, load_json_object
 from observal_cli.prompts import fuzzy_select, select_one, text_input
 from observal_cli.render import (
     OutputMode,
@@ -1301,9 +1301,7 @@ def submit(
             remediation="Pass the defaults-acceptance option and provide MCP JSON on standard input.",
         )
     if submit_draft:
-        from observal_cli import config as cfg
-
-        resolved = cfg.resolve_alias(submit_draft)
+        resolved = client.resolve_registry_reference("mcp", submit_draft)
         submit_context = nullcontext() if output == "json" else spinner("Submitting draft for review...")
         with submit_context:
             result = client.post(f"/api/v1/mcps/{resolved}/submit")
@@ -1567,35 +1565,7 @@ def edit_mcp(
     optic.trace("mcp_id={}, from_file={}", mcp_id, from_file)
     resolved = client.resolve_registry_reference("mcp", mcp_id)
     if from_file:
-        try:
-            with open(from_file) as f:
-                updates = json.load(f)
-        except json.JSONDecodeError as error:
-            fail(
-                ErrorCategory.VALIDATION,
-                "The MCP update file is not valid JSON.",
-                operation="Edit MCP server",
-                resource=from_file,
-                remediation="Correct the JSON and retry.",
-                detail=repr(error),
-            )
-        except FileNotFoundError as error:
-            fail(
-                ErrorCategory.NOT_FOUND,
-                "The MCP update file was not found.",
-                operation="Edit MCP server",
-                resource=from_file,
-                remediation="Provide an existing update file and retry.",
-                detail=repr(error),
-            )
-        if not isinstance(updates, dict):
-            fail(
-                ErrorCategory.VALIDATION,
-                "The MCP update file must contain a JSON object.",
-                operation="Edit MCP server",
-                resource=from_file,
-                remediation="Replace the file contents with a JSON object and retry.",
-            )
+        updates = load_json_object(from_file, operation="Edit MCP server", noun="MCP update file")
     else:
         updates = {}
         if name is not None:

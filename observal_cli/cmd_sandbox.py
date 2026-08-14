@@ -18,7 +18,7 @@ from rich.table import Table
 
 from observal_cli import client, config
 from observal_cli.constants import VALID_HARNESSES, VALID_SANDBOX_NETWORK_POLICIES, VALID_SANDBOX_RUNTIME_TYPES
-from observal_cli.errors import ErrorCategory, fail
+from observal_cli.errors import ErrorCategory, fail, load_json_object
 from observal_cli.prompts import select_one, text_input
 from observal_cli.render import (
     OutputMode,
@@ -215,7 +215,7 @@ def sandbox_submit(
         interactive_description = text_input("Description")
         interactive_runtime = select_one("Runtime type", VALID_SANDBOX_RUNTIME_TYPES)
         interactive_image = text_input("Image")
-        limits = _json_object(text_input("Resource limits (JSON)"), "resource limits", "Submit sandbox")
+        limits = _json_object(text_input("Resource limits (JSON)", default="{}"), "resource limits", "Submit sandbox")
         runtime_cfg = _json_object(
             text_input("Runtime config (JSON)", default="{}"), "runtime config", "Submit sandbox"
         )
@@ -428,35 +428,7 @@ def sandbox_edit(
     """
     resolved = client.resolve_registry_reference("sandbox", sandbox_id)
     if from_file:
-        try:
-            with open(from_file) as f:
-                updates = _json.load(f)
-        except _json.JSONDecodeError as error:
-            fail(
-                ErrorCategory.VALIDATION,
-                "The sandbox update file is not valid JSON.",
-                operation="Edit sandbox",
-                resource=from_file,
-                remediation="Correct the JSON and retry.",
-                detail=repr(error),
-            )
-        except FileNotFoundError as error:
-            fail(
-                ErrorCategory.NOT_FOUND,
-                "The sandbox update file was not found.",
-                operation="Edit sandbox",
-                resource=from_file,
-                remediation="Provide an existing update file and retry.",
-                detail=repr(error),
-            )
-        if not isinstance(updates, dict):
-            fail(
-                ErrorCategory.VALIDATION,
-                "The sandbox update file must contain a JSON object.",
-                operation="Edit sandbox",
-                resource=from_file,
-                remediation="Replace the file contents with a JSON object and retry.",
-            )
+        updates = load_json_object(from_file, operation="Edit sandbox", noun="sandbox update file")
     else:
         updates = {}
         if name is not None:

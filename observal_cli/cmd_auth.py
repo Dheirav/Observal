@@ -504,30 +504,24 @@ def login(
                 sso_provider = "saml"
 
     if sso_mode:
-        if not json_mode and run_setup:
-            _do_device_flow_login(server_url, direct_sso=direct_sso, provider=sso_provider)
-        else:
-            _do_device_flow_login(
-                server_url,
-                direct_sso=direct_sso,
-                provider=sso_provider,
-                output=output,
-                run_setup=run_setup,
-            )
+        _do_device_flow_login(
+            server_url,
+            direct_sso=direct_sso,
+            provider=sso_provider,
+            output=output,
+            run_setup=run_setup,
+        )
         return
 
     login_email = email or text_input("Email or username")
     login_password = supplied_password or password_input("Password")
-    if not json_mode and run_setup:
-        _do_password_login(server_url, login_email, login_password)
-    else:
-        _do_password_login(
-            server_url,
-            login_email,
-            login_password,
-            output=output,
-            run_setup=run_setup,
-        )
+    _do_password_login(
+        server_url,
+        login_email,
+        login_password,
+        output=output,
+        run_setup=run_setup,
+    )
 
 
 @auth_app.command()
@@ -713,9 +707,9 @@ def change_password(
 ):
     """Change your password.
 
-    Human mode prompts for passwords. JSON mode reads
-    OBSERVAL_CURRENT_PASSWORD and OBSERVAL_NEW_PASSWORD, including their FILE
-    forms, and never prompts.
+    Both modes read OBSERVAL_CURRENT_PASSWORD and OBSERVAL_NEW_PASSWORD,
+    including their FILE forms. Human mode prompts for missing values; JSON
+    mode requires both values and never prompts.
 
     Examples:
         observal auth change-password
@@ -1035,8 +1029,11 @@ def _do_device_flow_login(
             _sp.Popen(["open", verification_uri_complete], stderr=_sp.DEVNULL, stdout=_sp.DEVNULL)
             opened = True
         elif system == "Linux":
-            wsl = _sp.run(["wslpath", "-w", "/"], capture_output=True)
-            if wsl.returncode == 0:
+            try:
+                wsl_ok = _sp.run(["wslpath", "-w", "/"], capture_output=True).returncode == 0
+            except (OSError, ValueError):
+                wsl_ok = False
+            if wsl_ok:
                 _sp.Popen(
                     ["powershell.exe", "-NoProfile", "-c", f"Start-Process '{verification_uri_complete}'"],
                     stderr=_sp.DEVNULL,
@@ -1207,14 +1204,16 @@ def _normalize_config_value(key: str, value: str) -> object:
         return number
     if key == "update_check":
         return _parse_bool(normalized, key=key)
-    if normalized and not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", normalized):
-        fail(
-            ErrorCategory.VALIDATION,
-            "update_check_repo must use owner/repository format.",
-            operation="Update CLI configuration",
-            resource=key,
-            remediation="Provide a value such as Observal/Observal or an empty string.",
-        )
+    if key == "update_check_repo":
+        if normalized and not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", normalized):
+            fail(
+                ErrorCategory.VALIDATION,
+                "update_check_repo must use owner/repository format.",
+                operation="Update CLI configuration",
+                resource=key,
+                remediation="Provide a value such as Observal/Observal or an empty string.",
+            )
+        return normalized
     return normalized
 
 

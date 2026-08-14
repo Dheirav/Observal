@@ -161,8 +161,7 @@ observal
 │   ├── patch / cleanup      #   install or remove telemetry hooks
 │   └── support              #   diagnostic bundle with redaction
 └── server                   # start, stop, restart, status, logs, install, reset, config
-    └── migrate              #   ClickHouse migration tools (falls back to top-level
-                             #   `observal migrate` when server deps are unavailable)
+    └── migrate              #   PostgreSQL and ClickHouse migration tools
 ```
 
 `pull` is a subcommand (`observal agent pull`), not a top-level command. Run `observal --help` to confirm before documenting a command path.

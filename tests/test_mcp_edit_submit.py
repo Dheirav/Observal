@@ -304,6 +304,7 @@ class TestSubmitCommand:
     def test_submit_draft_for_review(self):
         """--submit flag submits an existing draft for review."""
         mock_client = MagicMock()
+        mock_client.resolve_registry_reference.return_value = "resolved-draft"
         mock_client.post.return_value = {"id": "abc-123", "name": "my-mcp"}
 
         with (
@@ -317,6 +318,8 @@ class TestSubmitCommand:
 
         assert result.exit_code == 0, _plain(result.output)
         assert "Draft submitted" in _plain(result.output) or "submitted" in _plain(result.output).lower()
+        mock_client.resolve_registry_reference.assert_called_once_with("mcp", "abc-123")
+        mock_client.post.assert_called_once_with("/api/v1/mcps/resolved-draft/submit")
 
     def test_submit_yes_mode_uses_parsed_description(self):
         """In --yes mode, parsed description from registry format is used."""
