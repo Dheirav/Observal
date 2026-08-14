@@ -69,9 +69,9 @@ observal registry recommend --limit 12 --type mcp --refresh --output json
 **What you may claim:** `personalized: false` → say plainly there is no session history yet and these are simply the most-used components; never present them as tailored. `items: []` → say either nothing in the registry is visible to them or they already installed or dismissed it all; this is not an error, so do not report it as one. `profile_sessions` under ~5 → give the answer, and say the profile is thin.
 
 ```bash
-observal registry recommend dismiss skill NAMESPACE/SLUG
-observal registry recommend dismiss mcp NAMESPACE/SLUG --action not_relevant
-observal registry recommend dismiss hook NAMESPACE/SLUG --action installed
+observal registry recommend dismiss skill NAMESPACE/SLUG --output json
+observal registry recommend dismiss mcp NAMESPACE/SLUG --action not_relevant --output json
+observal registry recommend dismiss hook NAMESPACE/SLUG --action installed --output json
 ```
 
 Dismissals are per-user and permanent until overwritten, so confirm before dismissing. A work profile is visible only to its owner: no flag or server route exposes another user's recommendations, so if asked, say it is unavailable rather than improvising a workaround.

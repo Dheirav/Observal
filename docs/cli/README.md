@@ -21,6 +21,7 @@ Complete reference for the `observal` CLI. Every subcommand has its own page; th
 | [`observal outdated`](outdated.md)                                                         | Compare installed agent and component versions with the active registry               |
 | [`observal agent pull`](pull.md)                                                           | Install a published agent into an harness                                             |
 | [`observal registry`](registry.md)                                                         | Publish and manage components (MCP / skill / hook / prompt / sandbox)                 |
+| [`observal registry recommend`](recommend.md)                                              | Get personalized component recommendations                                            |
 | [`observal registry version`](component.md)                                                | Publish and inspect component versions                                                |
 | [`observal registry models`](models.md)                                                    | Inspect packaged harness model catalogs                                               |
 | [`observal agent`](agent.md)                                                               | Author and publish agents                                                             |
@@ -32,7 +33,7 @@ Complete reference for the `observal` CLI. Every subcommand has its own page; th
 | [`observal self`](self.md)                                                                 | Upgrade or downgrade the CLI                                                          |
 | [`observal registry prompt`](prompt.md)                                                    | Manage reusable prompts in the registry                                               |
 | [`observal server`](server.md)                                                             | Manage the embedded server (start, stop, upgrade, rollback)                           |
-| [`observal skill`](skill.md)                                                               | Submit, browse, and install portable skill packages                                   |
+| [`observal registry skill`](skill.md)                                                      | Submit, browse, and install portable skill packages                                   |
 | [`observal uninstall`](uninstall.md)                                                       | Completely remove Observal from the system                                            |
 
 ## Global options

@@ -17,6 +17,7 @@ from rich import print as rprint
 from rich.table import Table
 
 from observal_cli import client
+from observal_cli.errors import ErrorCategory, fail
 from observal_cli.render import OutputMode, console, esc, output_json, spinner
 
 recommend_app = typer.Typer(
@@ -46,12 +47,16 @@ _TYPE_ALIASES = {**{t: t for t in _TYPES}, **{plural: t for t, plural in _TYPES.
 _VALID_ACTIONS = ("dismissed", "not_relevant", "installed")
 
 
-def _normalize_type(raw: str) -> str:
+def _normalize_type(raw: str, operation: str = "List registry recommendations") -> str:
     normalized = _TYPE_ALIASES.get(raw.strip().lower())
     if normalized is None:
-        rprint(f"[red]Unknown component type '{raw}'.[/red]")
-        rprint(f"[dim]Choose one of: {', '.join(sorted(_TYPES))}[/dim]")
-        raise typer.Exit(1)
+        fail(
+            ErrorCategory.VALIDATION,
+            f"Unknown component type: {raw}.",
+            operation=operation,
+            resource="component type",
+            remediation=f"Choose one of: {', '.join(sorted(_TYPES))}.",
+        )
     return normalized
 
 
@@ -173,6 +178,7 @@ def recommend_dismiss(
         "-a",
         help=f"Feedback to record: {', '.join(_VALID_ACTIONS)}",
     ),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """Stop recommending a component to you.
 
@@ -180,21 +186,30 @@ def recommend_dismiss(
 
         observal registry recommend dismiss skill super/terraform-plan-review
 
-        observal registry recommend dismiss mcp 0f2b... --action installed
+        observal registry recommend dismiss mcp 0f2b... --action installed --output json
     """
-    normalized = _normalize_type(component_type)
+    normalized = _normalize_type(component_type, "Update recommendation feedback")
     if action not in _VALID_ACTIONS:
-        rprint(f"[red]Unknown action '{action}'.[/red]")
-        rprint(f"[dim]Choose one of: {', '.join(_VALID_ACTIONS)}[/dim]")
-        raise typer.Exit(1)
+        fail(
+            ErrorCategory.VALIDATION,
+            f"Unknown recommendation action: {action}.",
+            operation="Update recommendation feedback",
+            resource="action",
+            remediation=f"Choose one of: {', '.join(_VALID_ACTIONS)}.",
+        )
 
-    with spinner("Recording feedback..."):
+    feedback_context = nullcontext() if output == "json" else spinner("Recording feedback...")
+    with feedback_context:
         component_id = client.resolve_registry_reference(_TYPES[normalized], reference)
         client.post(
             "/api/v1/recommendations/feedback",
             {"component_type": normalized, "component_id": component_id, "action": action},
         )
 
+    result = {"component_type": normalized, "component_id": component_id, "action": action}
+    if output == "json":
+        output_json(result)
+        return
     if action == "installed":
         rprint(f"[green]✓ Marked {normalized} {esc(reference)} as installed.[/green]")
     else:
