@@ -567,10 +567,7 @@ def test_logout_revokes_remote_session_then_removes_every_local_token(
         headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
         timeout=5,
     )
-    assert json.loads(auth.config.CONFIG_FILE.read_text()) == {
-        "server_url": f"{SERVER_URL}/",
-        "output": "json",
-    }
+    assert json.loads(auth.config.CONFIG_FILE.read_text()) == {"server_url": f"{SERVER_URL}/"}
     output = "\n".join(printed)
     assert "Logged out" in output
     assert ACCESS_TOKEN not in output
@@ -1302,50 +1299,61 @@ def test_device_flow_browser_failure_keeps_manual_flow_available(
     assert "Please open the URL manually" in "\n".join(printed)
 
 
-@pytest.mark.parametrize(
-    ("access_token", "refresh_token", "expected_access", "expected_refresh"),
-    [
-        ("abcdefghijklmno", "123456789012345", "abcdefgh...lmno", "12345678...2345"),
-        ("short", "tiny", "***", "***"),
-    ],
-)
-def test_config_show_masks_tokens_and_removes_legacy_key(
-    access_token: str,
-    refresh_token: str,
-    expected_access: str,
-    expected_refresh: str,
+def test_config_show_json_never_exposes_token_fragments(
     config_cli: typer.Typer,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stored = {
         "server_url": SERVER_URL,
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "api_key": "legacy-secret",
+        "access_token": ACCESS_TOKEN,
+        "refresh_token": REFRESH_TOKEN,
+        "api_key": "hooks-secret",
+        "timeout": 30,
     }
-    print_json = MagicMock()
     monkeypatch.setattr(auth.config, "load", lambda: stored)
-    monkeypatch.setattr(auth.console, "print_json", print_json)
+
+    result = CliRunner().invoke(config_cli, ["config", "show", "--output", "json"])
+
+    assert result.exit_code == 0, result.output
+    rendered = json.loads(result.output)
+    assert rendered == {
+        "server_url": SERVER_URL,
+        "timeout": 30,
+        "access_token_configured": True,
+        "refresh_token_configured": True,
+        "hooks_token_configured": True,
+    }
+    assert ACCESS_TOKEN not in result.output
+    assert REFRESH_TOKEN not in result.output
+    assert "hooks-secret" not in result.output
+
+
+def test_config_show_defaults_to_table(
+    config_cli: typer.Typer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    print_table = MagicMock()
+    monkeypatch.setattr(auth.config, "load", lambda: {"server_url": SERVER_URL, "timeout": 30})
+    monkeypatch.setattr(auth.console, "print", print_table)
 
     result = CliRunner().invoke(config_cli, ["config", "show"])
 
     assert result.exit_code == 0, result.output
-    rendered = json.loads(print_json.call_args.args[0])
-    assert rendered == {
-        "server_url": SERVER_URL,
-        "access_token": expected_access,
-        "refresh_token": expected_refresh,
-    }
-    assert stored["access_token"] == access_token
-    assert stored["refresh_token"] == refresh_token
-    assert stored["api_key"] == "legacy-secret"
+    print_table.assert_called_once()
+    assert isinstance(print_table.call_args.args[0], auth.Table)
 
 
 @pytest.mark.parametrize(
     ("key", "value", "saved_value"),
-    [("color", "YES", True), ("color", "no", False), ("output", "json", "json")],
+    [
+        ("update_check", "YES", True),
+        ("update_check", "off", False),
+        ("timeout", "60", 60),
+        ("update_check_interval", "120", 120),
+        ("update_check_repo", "Observal/Observal", "Observal/Observal"),
+    ],
 )
-def test_config_set_normalizes_boolean_values(
+def test_config_set_normalizes_supported_values(
     key: str,
     value: str,
     saved_value: object,
@@ -1354,14 +1362,52 @@ def test_config_set_normalizes_boolean_values(
 ) -> None:
     save = MagicMock()
     monkeypatch.setattr(auth.config, "save", save)
+    monkeypatch.setattr(auth.config, "load", lambda: {key: saved_value})
 
-    result = CliRunner().invoke(config_cli, ["config", "set", key, value])
+    result = CliRunner().invoke(config_cli, ["config", "set", key, value, "--output", "json"])
 
     assert result.exit_code == 0, result.output
     save.assert_called_once_with({key: saved_value})
+    assert json.loads(result.output) == {
+        "key": key,
+        "value": saved_value,
+        "persisted": True,
+        "effective": saved_value,
+    }
 
 
-def test_config_set_server_migrates_previous_lockfile(
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("output", "json"),
+        ("color", "false"),
+        ("access_token", "secret"),
+        ("unknown", "value"),
+        ("update_check", "maybe"),
+        ("timeout", "zero"),
+        ("timeout", "0"),
+        ("update_check_interval", "59"),
+        ("server_url", "registry.example.test"),
+        ("server_url", "https://user:password@registry.example.test"),
+        ("update_check_repo", "missing-slash"),
+    ],
+)
+def test_config_set_rejects_unsupported_or_invalid_values(
+    key: str,
+    value: str,
+    config_cli: typer.Typer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    save = MagicMock()
+    monkeypatch.setattr(auth.config, "save", save)
+
+    result = CliRunner().invoke(config_cli, ["config", "set", key, value])
+
+    assert result.exit_code == ExitCode.VALIDATION
+    save.assert_not_called()
+
+
+def test_config_set_server_normalizes_and_migrates_previous_lockfile(
     config_cli: typer.Typer,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1369,84 +1415,171 @@ def test_config_set_server_migrates_previous_lockfile(
 
     migrate = MagicMock()
     save = MagicMock()
-    monkeypatch.setattr(auth.config, "load", lambda: {"server_url": "https://old.example.test"})
+    monkeypatch.setattr(auth.config, "load_persisted", lambda: {"server_url": "https://old.example.test"})
+    monkeypatch.setattr(auth.config, "load", lambda: {"server_url": SERVER_URL})
     monkeypatch.setattr(auth.config, "save", save)
     monkeypatch.setattr(lockfile, "migrate_lockfile_v1", migrate)
 
-    result = CliRunner().invoke(config_cli, ["config", "set", "server_url", SERVER_URL])
+    result = CliRunner().invoke(config_cli, ["config", "set", "server_url", f"{SERVER_URL}/"])
 
     assert result.exit_code == 0, result.output
     migrate.assert_called_once_with("https://old.example.test")
     save.assert_called_once_with({"server_url": SERVER_URL})
 
 
-def test_config_path_prints_config_location(
+def test_config_set_server_categorizes_lockfile_migration_failure(
     config_cli: typer.Typer,
-    printed: list[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    result = CliRunner().invoke(config_cli, ["config", "path"])
+    import observal_cli.lockfile as lockfile
 
-    assert result.exit_code == 0, result.output
-    assert str(auth.config.CONFIG_FILE) in printed
+    save = MagicMock()
+    monkeypatch.setattr(auth.config, "load_persisted", lambda: {"server_url": "https://old.example.test"})
+    monkeypatch.setattr(lockfile, "migrate_lockfile_v1", MagicMock(side_effect=RuntimeError("bad lockfile")))
+    monkeypatch.setattr(auth.config, "save", save)
+
+    result = CliRunner().invoke(config_cli, ["config", "set", "server_url", SERVER_URL])
+
+    assert result.exit_code == ExitCode.VALIDATION
+    save.assert_not_called()
+
+
+def test_config_path_supports_bare_and_json_output(config_cli: typer.Typer) -> None:
+    plain = CliRunner().invoke(config_cli, ["config", "path"])
+    structured = CliRunner().invoke(config_cli, ["config", "path", "--output", "json"])
+
+    assert plain.exit_code == structured.exit_code == 0
+    assert plain.output.strip() == str(auth.config.CONFIG_FILE)
+    assert json.loads(structured.output) == {
+        "path": str(auth.config.CONFIG_FILE),
+        "exists": auth.config.CONFIG_FILE.exists(),
+    }
 
 
 def test_config_alias_sets_and_removes_mapping(
     config_cli: typer.Typer,
     monkeypatch: pytest.MonkeyPatch,
-    printed: list[str],
 ) -> None:
     aliases = {"old": "old-id"}
     save_aliases = MagicMock()
     monkeypatch.setattr(auth.config, "load_aliases", lambda: dict(aliases))
     monkeypatch.setattr(auth.config, "save_aliases", save_aliases)
 
-    set_result = CliRunner().invoke(config_cli, ["config", "alias", "agent", "agent-id"])
-    remove_result = CliRunner().invoke(config_cli, ["config", "alias", "old"])
+    set_result = CliRunner().invoke(
+        config_cli,
+        ["config", "alias", "agent", "alice/agent", "--output", "json"],
+    )
+    remove_result = CliRunner().invoke(config_cli, ["config", "alias", "old", "--output", "json"])
 
-    assert set_result.exit_code == 0, set_result.output
-    assert remove_result.exit_code == 0, remove_result.output
+    assert set_result.exit_code == remove_result.exit_code == 0
     assert save_aliases.call_args_list == [
-        call({"old": "old-id", "agent": "agent-id"}),
+        call({"old": "old-id", "agent": "alice/agent"}),
         call({}),
     ]
-    assert any("@agent" in message for message in printed)
-    assert any("Removed @old" in message for message in printed)
+    assert json.loads(set_result.output) == {
+        "action": "set",
+        "alias": "agent",
+        "target": "alice/agent",
+        "changed": True,
+    }
+    assert json.loads(remove_result.output) == {
+        "action": "removed",
+        "alias": "old",
+        "target": "old-id",
+        "changed": True,
+    }
 
 
-def test_config_alias_reports_missing_mapping(
+def test_config_alias_missing_removal_is_idempotent(
     config_cli: typer.Typer,
     monkeypatch: pytest.MonkeyPatch,
-    printed: list[str],
 ) -> None:
     save_aliases = MagicMock()
     monkeypatch.setattr(auth.config, "load_aliases", lambda: {})
     monkeypatch.setattr(auth.config, "save_aliases", save_aliases)
 
-    result = CliRunner().invoke(config_cli, ["config", "alias", "missing"])
+    result = CliRunner().invoke(config_cli, ["config", "alias", "missing", "--output", "json"])
 
     assert result.exit_code == 0, result.output
-    save_aliases.assert_called_once_with({})
-    assert any("not found" in message for message in printed)
+    save_aliases.assert_not_called()
+    assert json.loads(result.output) == {
+        "action": "removed",
+        "alias": "missing",
+        "target": None,
+        "changed": False,
+    }
+
+
+@pytest.mark.parametrize("name", ["@alias", "1", "has space", "has/slash", "a" * 65])
+def test_config_alias_rejects_invalid_names(
+    name: str,
+    config_cli: typer.Typer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    save_aliases = MagicMock()
+    monkeypatch.setattr(auth.config, "save_aliases", save_aliases)
+
+    result = CliRunner().invoke(config_cli, ["config", "alias", name, "target"])
+
+    assert result.exit_code == ExitCode.VALIDATION
+    save_aliases.assert_not_called()
 
 
 @pytest.mark.parametrize("aliases", [{}, {"zeta": "2", "alpha": "1"}])
-def test_config_aliases_lists_sorted_or_empty_state(
+def test_config_aliases_has_stable_json_shape(
     aliases: dict[str, str],
     config_cli: typer.Typer,
     monkeypatch: pytest.MonkeyPatch,
-    printed: list[str],
 ) -> None:
     monkeypatch.setattr(auth.config, "load_aliases", lambda: aliases)
+
+    result = CliRunner().invoke(config_cli, ["config", "aliases", "--output", "json"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == {
+        "items": [{"alias": name, "target": target} for name, target in sorted(aliases.items())],
+        "total": len(aliases),
+    }
+
+
+def test_config_aliases_defaults_to_table(
+    config_cli: typer.Typer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    print_table = MagicMock()
+    monkeypatch.setattr(auth.config, "load_aliases", lambda: {"alpha": "alice/agent"})
+    monkeypatch.setattr(auth.console, "print", print_table)
 
     result = CliRunner().invoke(config_cli, ["config", "aliases"])
 
     assert result.exit_code == 0, result.output
-    if aliases:
-        alpha = next(index for index, message in enumerate(printed) if "@alpha" in message)
-        zeta = next(index for index, message in enumerate(printed) if "@zeta" in message)
-        assert alpha < zeta
-    else:
-        assert any("No aliases set" in message for message in printed)
+    print_table.assert_called_once()
+    assert isinstance(print_table.call_args.args[0], auth.Table)
+
+
+def test_config_storage_is_atomic_private_and_rejects_malformed_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_file = tmp_path / "config.json"
+    aliases_file = tmp_path / "aliases.json"
+    monkeypatch.setattr(auth.config, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(auth.config, "CONFIG_FILE", config_file)
+    monkeypatch.setattr(auth.config, "ALIASES_FILE", aliases_file)
+
+    auth.config.save({"server_url": SERVER_URL, "output": "json", "color": True})
+    auth.config.save_aliases({"agent": "alice/agent"})
+
+    assert json.loads(config_file.read_text()) == {"server_url": SERVER_URL}
+    assert json.loads(aliases_file.read_text()) == {"agent": "alice/agent"}
+    assert config_file.stat().st_mode & 0o777 == 0o600
+    assert aliases_file.stat().st_mode & 0o777 == 0o600
+    assert list(tmp_path.glob(".*.json.*")) == []
+
+    aliases_file.write_text("not json")
+    with pytest.raises(CliError) as exc_info:
+        auth.config.load_aliases()
+    assert exc_info.value.category is ErrorCategory.VALIDATION
 
 
 def test_post_login_setup_installs_skills_snapshots_and_runs_doctor(

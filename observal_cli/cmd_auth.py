@@ -23,11 +23,13 @@ import shutil
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Annotated, NoReturn
+from urllib.parse import urlparse
 
 import httpx
 import typer
 from loguru import logger as optic
 from rich import print as rprint
+from rich.table import Table
 
 from observal_cli import client, config
 from observal_cli.branding import welcome_banner
@@ -56,8 +58,8 @@ config_app = typer.Typer(
         "CLI configuration\n\n"
         "Examples:\n"
         "  observal config show\n"
-        "  observal config set output json\n"
-        "  observal config path"
+        "  observal config set server_url https://observal.example.com\n"
+        "  observal config aliases --output json"
     )
 )
 
@@ -951,7 +953,6 @@ def _do_device_flow_login(
     optic.trace("server_url={}", server_url)
     import time
     import webbrowser
-    from urllib.parse import urlparse
 
     json_mode = _is_json(output)
     resource = f"server {server_url}"
@@ -1141,120 +1142,276 @@ def _do_device_flow_login(
     )
 
 
+_CONFIG_KEYS = {"server_url", "timeout", "update_check", "update_check_interval", "update_check_repo"}
+_ALIAS_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,63}$")
+
+
+def _parse_bool(value: str, *, key: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"true", "1", "yes", "on"}:
+        return True
+    if normalized in {"false", "0", "no", "off"}:
+        return False
+    fail(
+        ErrorCategory.VALIDATION,
+        f"{key} must be true or false.",
+        operation="Update CLI configuration",
+        resource=key,
+        remediation=f"Run observal config set {key} true or {key} false.",
+    )
+
+
+def _normalize_config_value(key: str, value: str) -> object:
+    if key not in _CONFIG_KEYS:
+        fail(
+            ErrorCategory.VALIDATION,
+            f"{key} is not a user-configurable setting.",
+            operation="Update CLI configuration",
+            resource=key,
+            remediation=f"Choose one of: {', '.join(sorted(_CONFIG_KEYS))}.",
+        )
+
+    normalized = value.strip()
+    if key == "server_url":
+        parsed = urlparse(normalized)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+        ):
+            fail(
+                ErrorCategory.VALIDATION,
+                "server_url must be an HTTP or HTTPS URL without embedded credentials.",
+                operation="Update CLI configuration",
+                resource=key,
+                remediation="Provide a URL such as https://observal.example.com.",
+            )
+        return normalized.rstrip("/")
+    if key in {"timeout", "update_check_interval"}:
+        try:
+            number = int(normalized)
+        except ValueError:
+            number = 0
+        minimum = 1 if key == "timeout" else 60
+        if number < minimum:
+            fail(
+                ErrorCategory.VALIDATION,
+                f"{key} must be an integer of at least {minimum}.",
+                operation="Update CLI configuration",
+                resource=key,
+                remediation=f"Provide an integer of at least {minimum} and retry.",
+            )
+        return number
+    if key == "update_check":
+        return _parse_bool(normalized, key=key)
+    if normalized and not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", normalized):
+        fail(
+            ErrorCategory.VALIDATION,
+            "update_check_repo must use owner/repository format.",
+            operation="Update CLI configuration",
+            resource=key,
+            remediation="Provide a value such as Observal/Observal or an empty string.",
+        )
+    return normalized
+
+
+def _safe_config(cfg: dict) -> dict:
+    visible = {
+        key: cfg.get(key)
+        for key in (
+            "server_url",
+            "timeout",
+            "update_check",
+            "update_check_interval",
+            "update_check_repo",
+            "user_id",
+            "user_name",
+            "username",
+            "web_url",
+        )
+        if key in cfg
+    }
+    visible["access_token_configured"] = bool(cfg.get("access_token"))
+    visible["refresh_token_configured"] = bool(cfg.get("refresh_token"))
+    visible["hooks_token_configured"] = bool(cfg.get("api_key"))
+    return visible
+
+
+def _validate_alias_name(name: str) -> None:
+    if not _ALIAS_PATTERN.fullmatch(name):
+        fail(
+            ErrorCategory.VALIDATION,
+            "Alias names must start with a letter and contain only letters, numbers, dots, underscores, or hyphens.",
+            operation="Update CLI alias",
+            resource=name,
+            remediation="Choose an alias of at most 64 characters without spaces or a leading at sign.",
+        )
+
+
 def register_config(app: typer.Typer):
     """Register config subcommands."""
 
     @config_app.command(name="show")
-    def config_show():
-        """Show current CLI configuration.
-
-        Prints all config values as JSON. Access and refresh tokens are
-        masked for safety. The config file lives at ~/.observal/config.json.
+    def config_show(
+        output: Annotated[
+            OutputMode, typer.Option("--output", "-o", help="Output format: table or json")
+        ] = OutputMode.table,
+    ):
+        """Show effective CLI configuration without exposing credentials.
 
         Examples:
             observal config show
+            observal config show --output json
         """
-        cfg = config.load()
-        safe = dict(cfg)
-        if safe.get("access_token"):
-            t = safe["access_token"]
-            safe["access_token"] = t[:8] + "..." + t[-4:] if len(t) > 12 else "***"
-        if safe.get("refresh_token"):
-            t = safe["refresh_token"]
-            safe["refresh_token"] = t[:8] + "..." + t[-4:] if len(t) > 12 else "***"
-        # Clean up legacy key if present
-        safe.pop("api_key", None)
-        console.print_json(_json.dumps(safe, indent=2))
+        safe = _safe_config(config.load())
+        if _is_json(output):
+            output_json(safe)
+            return
+
+        table = Table(title="CLI Configuration", show_lines=False)
+        table.add_column("Setting", style="bold")
+        table.add_column("Value")
+        for key, value in safe.items():
+            rendered = str(value).lower() if isinstance(value, bool) else "" if value is None else str(value)
+            table.add_row(key, esc(rendered))
+        console.print(table)
 
     @config_app.command(name="set")
     def config_set(
-        key: str = typer.Argument(..., help="Config key (output, color, server_url)"),
+        key: str = typer.Argument(..., help="Config key"),
         value: str = typer.Argument(..., help="Config value"),
+        output: Annotated[
+            OutputMode, typer.Option("--output", "-o", help="Output format: table or json")
+        ] = OutputMode.table,
     ):
-        """Set a CLI config value.
-
-        Persists the given key/value pair to ~/.observal/config.json.
-        Common keys: output (table/json), color (true/false),
-        server_url.
+        """Set a validated user-managed CLI setting.
 
         Examples:
-            observal config set output json
-            observal config set color false
-            observal config set server_url http://observal.internal:80
+            observal config set server_url https://observal.example.com
+            observal config set timeout 60 --output json
+            observal config set update_check false
         """
-        optic.trace("key={}, value={}", key, value)
-        if key == "output" and value not in ("table", "json"):
-            raise typer.BadParameter("output must be 'table' or 'json'", param_hint="value")
+        optic.trace("key={}", key)
+        normalized = _normalize_config_value(key, value)
         if key == "server_url":
-            from observal_cli.lockfile import migrate_lockfile_v1
+            from observal_cli.lockfile import LOCKFILE_PATH, migrate_lockfile_v1
 
-            previous_server = config.load().get("server_url")
-            if previous_server:
-                migrate_lockfile_v1(str(previous_server))
-        if key == "color":
-            config.save({key: value.lower() in ("true", "1", "yes")})
+            previous_server = config.load_persisted().get("server_url")
+            if previous_server and previous_server != normalized:
+                try:
+                    migrate_lockfile_v1(str(previous_server))
+                except (RuntimeError, ValueError) as error:
+                    fail(
+                        ErrorCategory.VALIDATION,
+                        "The installed-state lockfile could not be migrated.",
+                        operation="Update CLI server",
+                        resource=str(LOCKFILE_PATH),
+                        remediation="Repair or remove the invalid lockfile, then retry.",
+                        detail=repr(error),
+                    )
+        config.save({key: normalized})
+        effective = config.load().get(key)
+        result = {"key": key, "value": normalized, "persisted": True, "effective": effective}
+        if _is_json(output):
+            output_json(result)
         else:
-            config.save({key: value})
-        rprint(f"[green]Set {key}[/green]")
+            rprint(f"[green]Set {esc(key)}.[/green]")
 
     @config_app.command(name="path")
-    def config_path():
-        """Show config file path.
-
-        Prints the absolute path to the CLI config file. Useful for
-        scripting or manual edits.
+    def config_path(
+        output: Annotated[
+            OutputMode, typer.Option("--output", "-o", help="Output format: table or json")
+        ] = OutputMode.table,
+    ):
+        """Show the config file path.
 
         Examples:
             observal config path
-            cat $(observal config path)
+            observal config path --output json
         """
-        rprint(str(config.CONFIG_FILE))
+        result = {"path": str(config.CONFIG_FILE), "exists": config.CONFIG_FILE.exists()}
+        if _is_json(output):
+            output_json(result)
+        else:
+            print(result["path"])
 
     @config_app.command(name="alias")
     def config_alias(
-        name: str = typer.Argument(..., help="Alias name (used as @name)"),
-        target: str = typer.Argument(None, help="Target ID (omit to remove)"),
+        name: str = typer.Argument(..., help="Alias name used as @name"),
+        target: str | None = typer.Argument(None, help="Target reference; omit to remove"),
+        output: Annotated[
+            OutputMode, typer.Option("--output", "-o", help="Output format: table or json")
+        ] = OutputMode.table,
     ):
-        """Set or remove an alias for an MCP/agent ID.
-
-        Aliases let you reference agents or components by short names
-        instead of UUIDs. Use @name in any command that accepts an ID.
-        Omit the target argument to remove an existing alias.
+        """Set or remove a local registry reference alias.
 
         Examples:
-            observal config alias myagent 550e8400-e29b-41d4-a716-446655440000
-            observal config alias myagent
+            observal config alias reviewer alice/reviewer
+            observal config alias reviewer alice/reviewer --output json
+            observal config alias reviewer
         """
-        optic.trace("name={}, target={}", name, target)
+        optic.trace("name={}, has_target={}", name, target is not None)
+        _validate_alias_name(name)
         aliases = config.load_aliases()
-        if target:
-            aliases[name] = target
-            config.save_aliases(aliases)
-            rprint(f"[green]@{name} -> {target}[/green]")
+        if target is not None:
+            normalized_target = target.strip()
+            if not normalized_target:
+                fail(
+                    ErrorCategory.VALIDATION,
+                    "Alias targets must not be empty.",
+                    operation="Update CLI alias",
+                    resource=name,
+                    remediation="Provide a UUID, namespace/slug, name, or another supported reference.",
+                )
+            changed = aliases.get(name) != normalized_target
+            aliases[name] = normalized_target
+            if changed:
+                config.save_aliases(aliases)
+            result = {"action": "set", "alias": name, "target": normalized_target, "changed": changed}
+            message = f"@{esc(name)} → {esc(normalized_target)}"
         else:
             removed = aliases.pop(name, None)
-            config.save_aliases(aliases)
-            if removed:
-                rprint(f"[green]Removed @{name}[/green]")
-            else:
-                rprint(f"[yellow]Alias @{name} not found.[/yellow]")
+            changed = removed is not None
+            if changed:
+                config.save_aliases(aliases)
+            result = {"action": "removed", "alias": name, "target": removed, "changed": changed}
+            message = f"Removed @{esc(name)}" if changed else f"Alias @{esc(name)} was already absent"
+
+        if _is_json(output):
+            output_json(result)
+        else:
+            color = "green" if changed else "yellow"
+            rprint(f"[{color}]{message}[/{color}]")
 
     @config_app.command(name="aliases")
-    def config_aliases():
-        """List all aliases.
-
-        Shows all configured @name to ID mappings. Aliases are stored
-        in ~/.observal/aliases.json.
+    def config_aliases(
+        output: Annotated[
+            OutputMode, typer.Option("--output", "-o", help="Output format: table or json")
+        ] = OutputMode.table,
+    ):
+        """List all local aliases.
 
         Examples:
             observal config aliases
+            observal config aliases --output json
         """
-        aliases = config.load_aliases()
-        if not aliases:
-            rprint("[dim]No aliases set. Use: observal config alias <name> <id>[/dim]")
+        items = [{"alias": name, "target": target} for name, target in sorted(config.load_aliases().items())]
+        if _is_json(output):
+            output_json({"items": items, "total": len(items)})
             return
-        for name, target in sorted(aliases.items()):
-            rprint(f"  @{name} -> [dim]{target}[/dim]")
+        if not items:
+            rprint("[dim]No aliases set. Use: observal config alias <name> <reference>[/dim]")
+            return
+
+        table = Table(title="CLI Aliases", show_lines=False)
+        table.add_column("Alias", style="bold")
+        table.add_column("Target")
+        for item in items:
+            table.add_row(f"@{esc(item['alias'])}", esc(item["target"]))
+        console.print(table)
 
     app.add_typer(config_app, name="config")
 

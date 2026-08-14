@@ -172,16 +172,17 @@ observal team delete|leave HANDLE_OR_ID                          # owner/admin; 
 ## Procedure: CLI Config
 
 ```bash
-observal config show
-observal config path
-observal config set output json
-observal config set server_url https://observal.example.com
-observal config aliases
-observal config alias MY_AGENT abc-123
+observal config show --output json
+observal config path --output json
+observal config set server_url https://observal.example.com --output json
+observal config set timeout 60 --output json
+observal config aliases --output json
+observal config alias MY_AGENT namespace/agent --output json
 ```
 
----
+Only `server_url`, `timeout`, `update_check`, `update_check_interval`, and `update_check_repo` are user-configurable. Authentication and identity fields are managed by `observal auth`. JSON config output never includes token values or fragments.
 
+---
 ## Procedure: Discuss Agent Insights
 
 Use this when the user asks how an agent is doing, what is working, what is broken, why a version changed, or what to improve.

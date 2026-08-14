@@ -28,14 +28,16 @@ Every file Observal reads or writes on the client (`~/.observal/`) and in each h
   "access_token": "ey...",
   "refresh_token": "ey...",
   "user_id": "f9f3...",
-  "user_name": "alice@example.com",
-  "output": "table",
-  "color": "auto",
-  "timeout": 30
+  "user_name": "Alice",
+  "username": "alice",
+  "timeout": 30,
+  "update_check": true,
+  "update_check_interval": 86400,
+  "update_check_repo": ""
 }
 ```
 
-Override any field at runtime with `observal config set <key> <value>` or with an env var (see [Environment variables](environment-variables.md)).
+Authentication and identity fields are managed by `observal auth`. The `config set` command accepts only `server_url`, `timeout`, `update_check`, `update_check_interval`, and `update_check_repo`. Supported environment variables override persisted values for the current invocation; see [Environment variables](environment-variables.md).
 
 ### Durable session outbox
 
@@ -49,12 +51,12 @@ Use `observal ops telemetry status` to inspect pending batch count, disk use, ol
 
 ```json
 {
-  "my-mcp":   "498c17ac-1234-4567-89ab-cdef01234567",
-  "reviewer": "a01c5..."
+  "my-mcp": "498c17ac-1234-4567-89ab-cdef01234567",
+  "reviewer": "alice/reviewer"
 }
 ```
 
-Use anywhere that accepts `<id-or-name>` by prefixing with `@`.
+Use anywhere that accepts a compatible reference by prefixing the alias with `@`.
 
 ## harness-side
 
@@ -120,5 +122,5 @@ Client-side files under `~/.observal/` are created with mode `0600` (owner read/
 
 ## Related
 
-* [Environment variables](environment-variables.md) - env-var override for every config field
+* [Environment variables](environment-variables.md) - supported runtime overrides
 * [`observal config`](../cli/config.md), CLI surface for editing
