@@ -9,18 +9,24 @@
 
 from __future__ import annotations
 
-import time
+import sqlite3
+from contextlib import nullcontext
+from urllib.parse import quote
 
 import typer
 from loguru import logger as optic
 from rich import print as rprint
 from rich.table import Table
+from typer.models import OptionInfo
 
 from observal_cli import client, config
+from observal_cli.constants import VALID_HARNESSES
+from observal_cli.errors import ErrorCategory, fail
 from observal_cli.prompts import password_input
 from observal_cli.render import (
     OutputMode,
     console,
+    esc,
     kv_panel,
     output_json,
     relative_time,
@@ -33,13 +39,38 @@ from observal_cli.render import (
 # ops_app: Observability / operational commands group
 # ═══════════════════════════════════════════════════════════
 
+_RANKING_TYPES = ("mcp", "agent")
+_FEEDBACK_TYPES = ("mcp", "agent", "skill", "hook", "prompt", "sandbox")
+
+
+def _ops_value(value):
+    return value.default if isinstance(value, OptionInfo) else value
+
+
+def _ops_progress(output: OutputMode | str, message: str | None = None):
+    return nullcontext() if _ops_value(output) == "json" else spinner(message)
+
+
+def _ops_choice(value: str, allowed: tuple[str, ...], label: str, operation: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in allowed:
+        fail(
+            ErrorCategory.VALIDATION,
+            f"Unknown {label}: {value}.",
+            operation=operation,
+            resource=label,
+            remediation=f"Choose from: {', '.join(allowed)}.",
+        )
+    return normalized
+
+
 ops_app = typer.Typer(
     name="ops",
     help=(
-        "Observability and operational commands (traces, telemetry, dashboard, feedback)\n\n"
+        "Observability and operational commands (sessions, telemetry, rankings, feedback, insights)\n\n"
         "Examples:\n"
         "  observal ops traces\n"
-        "  observal ops metrics my-agent --type agent\n"
+        "  observal ops top --type agent\n"
         "  observal ops telemetry status"
     ),
     no_args_is_help=True,
@@ -246,12 +277,16 @@ def review_reject(
 # ── Telemetry ────────────────────────────────────────────
 
 telemetry_app = typer.Typer(
-    help=("Telemetry commands\n\nExamples:\n  observal ops telemetry status\n  observal ops telemetry test")
+    help=(
+        "Telemetry health commands\n\nExamples:\n  observal ops telemetry status\n  observal ops telemetry status --output json"
+    )
 )
 
 
 @telemetry_app.command(name="status")
-def telemetry_status():
+def telemetry_status(
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
+):
     """Check telemetry data flow status.
 
     Shows server-side event counts (tool calls, interactions) for the
@@ -262,132 +297,37 @@ def telemetry_status():
 
         observal ops telemetry status
     """
-    with spinner("Checking telemetry..."):
-        data = client.get("/api/v1/telemetry/status")
-    rprint(f"  Status:       [green]{data.get('status', 'unknown')}[/green]")
-    rprint(f"  Tool calls:   {data.get('tool_call_events', 0)} (last hour)")
-    rprint(f"  Interactions: {data.get('agent_interaction_events', 0)} (last hour)")
+    with _ops_progress(output, "Checking telemetry..."):
+        server = client.get("/api/v1/telemetry/status")
 
-    # Show local buffer stats
+    from observal_cli.telemetry_buffer import stats as buffer_stats
+
     try:
-        from observal_cli.telemetry_buffer import stats as buffer_stats
+        outbox = {"available": True, **buffer_stats()}
+    except (OSError, RuntimeError, sqlite3.Error) as error:
+        outbox = {"available": False, "error": type(error).__name__}
 
-        buf = buffer_stats()
-        rprint()
-        rprint("  [bold]Durable Session Outbox[/bold]")
-        rprint(f"  Pending:      {buf['pending']} batches")
-        rprint(f"  Disk:         {buf['bytes'] / 1024:.1f} KiB")
-        if buf["oldest_pending"]:
-            rprint(f"  Oldest:       {buf['oldest_pending']} UTC")
-        if buf["last_sync"]:
-            rprint(f"  Last sync:    {buf['last_sync']} UTC")
-        if buf["total"] == 0:
-            rprint("  [dim]Outbox is empty (all observed records acknowledged)[/dim]")
-    except Exception:
-        pass
+    result = {"server": server, "outbox": outbox}
+    if output == "json":
+        output_json(result)
+        return
 
-
-@telemetry_app.command(name="test")
-def telemetry_test():
-    """Send a test telemetry event.
-
-    Submits a synthetic tool call event to the server to verify that
-    the telemetry ingestion pipeline is working end to end.
-
-    Examples:
-
-        observal ops telemetry test
-    """
-    with spinner("Sending test event..."):
-        result = client.post(
-            "/api/v1/telemetry/events",
-            {
-                "tool_calls": [
-                    {
-                        "mcp_server_id": "test-mcp",
-                        "tool_name": "test_tool",
-                        "status": "success",
-                        "latency_ms": 42,
-                        "harness": "test",
-                    }
-                ],
-            },
-        )
-    rprint(f"[green]✓ Test event sent![/green] Ingested: {result.get('ingested', 0)}")
-
-
-@ops_app.command(name="metrics")
-def _metrics(
-    item_id: str = typer.Argument(..., help="ID, name, row number, or @alias"),
-    item_type: str = typer.Option("mcp", "--type", "-t", help="mcp or agent"),
-    output: OutputMode = typer.Option("table", "--output", "-o"),
-    watch: bool = typer.Option(False, "--watch", "-w", help="Refresh every 5s"),
-):
-    """Show metrics for an MCP server or agent.
-
-    Displays downloads, call counts, error rates, and latency percentiles
-    for the specified item. Use --watch to auto-refresh every 5 seconds
-    (Ctrl+C to stop).
-
-    Examples:
-
-        observal ops metrics my-mcp
-
-        observal ops metrics my-agent --type agent
-
-        observal ops metrics @mcp-alias --watch
-    """
-    _metrics_impl(item_id, item_type, output, watch)
-
-
-def _metrics_impl(item_id, item_type, output, watch):
-    resolved = config.resolve_alias(item_id)
-
-    def _fetch_and_print():
-        if item_type == "agent":
-            data = client.get(f"/api/v1/agents/{resolved}/metrics")
-            if output == "json":
-                output_json(data)
-                return
-            total = data.get("total_interactions", 0)
-            rate = data.get("acceptance_rate") or 0
-            rprint("\n  [bold]Agent Metrics[/bold]")
-            rprint(f"  Interactions:   {total}")
-            rprint(f"  Downloads:      {data.get('total_downloads', 0)}")
-            rprint(f"  Acceptance:     [{'green' if rate > 0.7 else 'yellow' if rate > 0.4 else 'red'}]{rate:.1%}[/]")
-            rprint(f"  Avg tool calls: {data.get('avg_tool_calls', 0)}")
-            rprint(f"  Avg latency:    {(data.get('avg_latency_ms') or 0):.0f}ms")
-        else:
-            data = client.get(f"/api/v1/mcps/{resolved}/metrics")
-            if output == "json":
-                output_json(data)
-                return
-            err_rate = data.get("error_rate") or 0
-            rprint("\n  [bold]MCP Metrics[/bold]")
-            rprint(f"  Downloads:  {data.get('total_downloads', 0)}")
-            rprint(f"  Total calls: {data.get('total_calls', 0)}")
-            rprint(
-                f"  Error rate:  [{'red' if err_rate > 0.1 else 'yellow' if err_rate > 0.01 else 'green'}]{err_rate:.2%}[/]"
-            )
-            rprint(f"  Avg latency: {(data.get('avg_latency_ms') or 0):.0f}ms")
-            rprint(
-                f"  Latency p50/p90/p99: {data.get('p50_latency_ms', 0)}/{data.get('p90_latency_ms', 0)}/{data.get('p99_latency_ms', 0)}ms"
-            )
-        rprint()
-
-    if watch:
-        try:
-            while True:
-                console.clear()
-                rprint(f"[dim]Watching metrics for {resolved} (Ctrl+C to stop)[/dim]")
-                _fetch_and_print()
-                time.sleep(5)
-        except KeyboardInterrupt:
-            rprint("\n[dim]Stopped.[/dim]")
-    else:
-        with spinner("Loading metrics..."):
-            pass
-        _fetch_and_print()
+    rprint(f"  Status:       [green]{esc(server.get('status', 'unknown'))}[/green]")
+    rprint(f"  Tool calls:   {server.get('tool_call_events', 0)} (last hour)")
+    rprint(f"  Interactions: {server.get('agent_interaction_events', 0)} (last hour)")
+    rprint()
+    rprint("  [bold]Durable Session Outbox[/bold]")
+    if not outbox["available"]:
+        rprint(f"  [yellow]Unavailable:[/yellow] {esc(outbox['error'])}")
+        return
+    rprint(f"  Pending:      {outbox['pending']} batches")
+    rprint(f"  Disk:         {outbox['bytes'] / 1024:.1f} KiB")
+    if outbox["oldest_pending"]:
+        rprint(f"  Oldest:       {esc(outbox['oldest_pending'])} UTC")
+    if outbox["last_sync"]:
+        rprint(f"  Last sync:    {esc(outbox['last_sync'])} UTC")
+    if outbox["total"] == 0:
+        rprint("  [dim]Outbox is empty (all observed records acknowledged)[/dim]")
 
 
 @ops_app.command(name="top")
@@ -412,8 +352,9 @@ def _top(
 
 
 def _top_impl(item_type, output):
+    item_type = _ops_choice(item_type, _RANKING_TYPES, "ranking type", "List top registry items")
     endpoint = "/api/v1/overview/top-mcps" if item_type == "mcp" else "/api/v1/overview/top-agents"
-    with spinner():
+    with _ops_progress(output):
         data = client.get(endpoint)
     if output == "json":
         output_json(data)
@@ -428,7 +369,9 @@ def _top_impl(item_type, output):
     table.add_column("Downloads", justify="right")
     table.add_column("ID", style="dim", max_width=12)
     for i, item in enumerate(data, 1):
-        table.add_row(str(i), item["name"], str(int(item["value"])), str(item["id"])[:8] + "…")
+        table.add_row(
+            str(i), esc(item.get("name", "")), str(int(item.get("value", 0))), esc(str(item.get("id", ""))[:8] + "…")
+        )
     console.print(table)
 
 
@@ -442,6 +385,7 @@ def _rate(
     listing_type: str = typer.Option("mcp", "--type", "-t", help="mcp, agent, skill, hook, prompt, or sandbox"),
     comment: str | None = typer.Option(None, "--comment", "-c"),
     anonymous: bool = typer.Option(False, "--anonymous", "-a", help="Submit anonymously"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """Rate an MCP server, agent, or component.
 
@@ -456,13 +400,22 @@ def _rate(
 
         observal ops rate my-mcp --stars 5 --anonymous
     """
-    _rate_impl(listing_id, stars, listing_type, comment, anonymous)
+    _rate_impl(listing_id, stars, listing_type, comment, anonymous, output)
 
 
-def _rate_impl(listing_id, stars, listing_type, comment, anonymous=False):
+def _rate_impl(listing_id, stars, listing_type, comment, anonymous=False, output="table"):
+    listing_type = _ops_choice(listing_type, _FEEDBACK_TYPES, "feedback type", "Rate registry item")
+    if comment is not None and len(comment) > 5000:
+        fail(
+            ErrorCategory.VALIDATION,
+            "Feedback comment must be at most 5000 characters.",
+            operation="Rate registry item",
+            resource="feedback comment",
+            remediation="Shorten the comment and retry.",
+        )
     resolved = _resolve_listing_id(listing_id, listing_type)
-    with spinner("Submitting rating..."):
-        client.post(
+    with _ops_progress(output, "Submitting rating..."):
+        result = client.post(
             "/api/v1/feedback",
             {
                 "listing_id": resolved,
@@ -472,6 +425,9 @@ def _rate_impl(listing_id, stars, listing_type, comment, anonymous=False):
                 "anonymous": anonymous,
             },
         )
+    if output == "json":
+        output_json(result)
+        return
     rprint(f"[green]\u2713 Rated {star_rating(stars)}[/green]")
 
 
@@ -482,6 +438,7 @@ def _rate_update(
     stars: int | None = typer.Option(None, "--stars", "-s", min=1, max=5, help="New rating 1-5"),
     comment: str | None = typer.Option(None, "--comment", "-c", help="New comment"),
     anonymous: bool | None = typer.Option(None, "--anonymous/--no-anonymous", help="Set or unset anonymous flag"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """Update your existing review for an item.
 
@@ -493,10 +450,7 @@ def _rate_update(
 
         observal ops rate-update my-mcp --comment "Updated opinion" --anonymous
     """
-    resolved = _resolve_listing_id(listing_id, listing_type)
-    # First, get the user's existing review
-    with spinner("Fetching your review..."):
-        review = client.get(f"/api/v1/feedback/mine/{listing_type}/{resolved}")
+    listing_type = _ops_choice(listing_type, _FEEDBACK_TYPES, "feedback type", "Update registry feedback")
     body = {}
     if stars is not None:
         body["rating"] = stars
@@ -505,10 +459,29 @@ def _rate_update(
     if anonymous is not None:
         body["anonymous"] = anonymous
     if not body:
-        rprint("[yellow]Nothing to update. Provide --stars, --comment, or --anonymous.[/yellow]")
-        raise typer.Exit(1)
-    with spinner("Updating review..."):
-        client.put(f"/api/v1/feedback/{review['id']}", body)
+        fail(
+            ErrorCategory.VALIDATION,
+            "No feedback changes were provided.",
+            operation="Update registry feedback",
+            resource="feedback update",
+            remediation="Provide --stars, --comment, --anonymous, or --no-anonymous.",
+        )
+    if comment is not None and len(comment) > 5000:
+        fail(
+            ErrorCategory.VALIDATION,
+            "Feedback comment must be at most 5000 characters.",
+            operation="Update registry feedback",
+            resource="feedback comment",
+            remediation="Shorten the comment and retry.",
+        )
+    resolved = _resolve_listing_id(listing_id, listing_type)
+    with _ops_progress(output, "Fetching your review..."):
+        review = client.get(f"/api/v1/feedback/mine/{listing_type}/{resolved}")
+    with _ops_progress(output, "Updating review..."):
+        result = client.put(f"/api/v1/feedback/{review['id']}", body)
+    if output == "json":
+        output_json(result)
+        return
     rprint("[green]\u2713 Review updated[/green]")
 
 
@@ -516,6 +489,8 @@ def _rate_update(
 def _rate_delete(
     listing_id: str = typer.Argument(..., help="ID, name, row number, or @alias"),
     listing_type: str = typer.Option("mcp", "--type", "-t", help="mcp, agent, skill, hook, prompt, or sandbox"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """Delete your review for an item.
 
@@ -527,30 +502,47 @@ def _rate_delete(
 
         observal ops rate-delete my-agent --type agent
     """
+    listing_type = _ops_choice(listing_type, _FEEDBACK_TYPES, "feedback type", "Delete registry feedback")
+    yes = _ops_value(yes)
+    output = _ops_value(output)
+    if output == "json" and not yes:
+        fail(
+            ErrorCategory.VALIDATION,
+            "JSON mode cannot prompt before deleting feedback.",
+            operation="Delete registry feedback",
+            resource="feedback",
+            remediation="Add --yes to confirm deletion.",
+        )
     resolved = _resolve_listing_id(listing_id, listing_type)
-    with spinner("Fetching your review..."):
+    with _ops_progress(output, "Fetching your review..."):
         review = client.get(f"/api/v1/feedback/mine/{listing_type}/{resolved}")
-    with spinner("Deleting review..."):
-        client.delete(f"/api/v1/feedback/{review['id']}")
+    if not yes and not typer.confirm("Delete your review permanently?"):
+        raise typer.Abort()
+    with _ops_progress(output, "Deleting review..."):
+        result = client.delete(f"/api/v1/feedback/{review['id']}")
+    if output == "json":
+        output_json(result)
+        return
     rprint("[green]\u2713 Review deleted[/green]")
 
 
 def _resolve_listing_id(listing_id: str, listing_type: str) -> str:
-    """Resolve a name/alias to UUID for feedback operations."""
-    resolved = config.resolve_alias(listing_id)
-    try:
-        import uuid as _uuid
+    """Resolve a UUID, canonical name, row, alias, or unambiguous bare name."""
+    import uuid
 
-        _uuid.UUID(resolved)
+    try:
+        return str(uuid.UUID(listing_id))
     except ValueError:
-        endpoint = "/api/v1/agents" if listing_type == "agent" else f"/api/v1/{listing_type}s"
-        try:
-            item = client.get(f"{endpoint}/{resolved}")
-            resolved = item["id"]
-        except Exception:
-            rprint(f"[red]Could not find {listing_type} named '{resolved}'[/red]")
-            raise typer.Exit(1)
-    return resolved
+        pass
+    resolved = client.resolve_registry_reference(listing_type, listing_id)
+    try:
+        return str(uuid.UUID(resolved))
+    except ValueError:
+        result = client.get(
+            "/api/v1/registry/resolve",
+            params={"type": listing_type, "identifier": resolved},
+        )
+        return str(result["id"])
 
 
 @ops_app.command(name="feedback")
@@ -576,8 +568,9 @@ def _feedback(
 
 
 def _feedback_impl(listing_id, listing_type, output):
-    resolved = config.resolve_alias(listing_id)
-    with spinner():
+    listing_type = _ops_choice(listing_type, _FEEDBACK_TYPES, "feedback type", "Show registry feedback")
+    resolved = _resolve_listing_id(listing_id, listing_type)
+    with _ops_progress(output):
         data = client.get(f"/api/v1/feedback/{listing_type}/{resolved}")
         summary = client.get(f"/api/v1/feedback/summary/{resolved}")
 
@@ -594,7 +587,7 @@ def _feedback_impl(listing_id, listing_type, output):
     rprint(f"\n  {star_rating(round(avg))} [bold]{avg:.1f}[/bold]/5 ({total} reviews)\n")
     for fb in data:
         stars_str = star_rating(fb.get("rating", 0))
-        comment = f"  {fb['comment']}" if fb.get("comment") else ""
+        comment = f"  {esc(fb['comment'])}" if fb.get("comment") else ""
         rprint(f"  {stars_str}{comment}")
     rprint()
 
@@ -1325,19 +1318,11 @@ def admin_set_role(
 # ── Traces / Spans (on ops_app) ─────────────────────────
 
 
-def _graphql_query(query: str, variables: dict | None = None) -> dict:
-    """Execute a GraphQL query via the client module (handles auth refresh + retries)."""
-    payload = {"query": query}
-    if variables:
-        payload["variables"] = variables
-    return client.post("/api/v1/graphql", payload)
-
-
 @ops_app.command(name="traces")
 def _traces(
     platform: str | None = typer.Option(None, "--platform", "-p", help="Filter by harness platform"),
-    days: int | None = typer.Option(None, "--days", "-d", help="Limit to last N days"),
-    limit: int = typer.Option(20, "--limit", "-n"),
+    days: int | None = typer.Option(None, "--days", "-d", min=1, max=365, help="Limit to last N days"),
+    limit: int = typer.Option(20, "--limit", "-n", min=1, max=200),
     turn: bool = typer.Option(False, "--turn", help="Unfold sessions to show turns (prompts)"),
     span: bool = typer.Option(False, "--span", help="Show full detail including tool calls"),
     output: OutputMode = typer.Option("table", "--output", "-o"),
@@ -1363,15 +1348,24 @@ def _traces_impl(platform, days, limit, turn, span, output):
     # Fetch sessions from the REST endpoint (same data the web UI shows)
     params: dict = {"limit": limit}
     if platform:
+        platform = _ops_choice(platform, tuple(VALID_HARNESSES), "harness platform", "List sessions")
         params["platform"] = platform
     if days:
         params["days"] = days
 
-    with spinner("Querying sessions..."):
+    with _ops_progress(output, "Querying sessions..."):
         sessions = client.get("/api/v1/sessions", params=params)
 
     if output == "json":
-        output_json(sessions)
+        if turn or span:
+            items = []
+            for session in sessions:
+                session_id = str(session.get("session_id", ""))
+                detail = client.get(f"/api/v1/sessions/{quote(session_id, safe='')}")
+                items.append({"summary": session, "detail": detail})
+            output_json({"view": "span" if span else "turn", "items": items})
+        else:
+            output_json(sessions)
         return
 
     if not sessions:
@@ -1405,8 +1399,8 @@ def _render_sessions_summary(sessions: list[dict]):
         table.add_row(
             str(i),
             name,
-            s.get("user_name", "--"),
-            s.get("platform", "--"),
+            esc(s.get("user_name", "--")),
+            esc(s.get("platform", "--")),
             str(prompt_count),
             str(int(s.get("tool_result_count", 0))),
             tokens_display,
@@ -1429,24 +1423,15 @@ def _render_sessions_detail(sessions: list[dict], full: bool = False):
         name = f"{prompt_count} prompt{'s' if prompt_count != 1 else ''}"
         session_label = (
             f"[bold]{name}[/bold] "
-            f"[dim]{session_id[:12]}…[/dim] "
-            f"[cyan]{s.get('platform', '')}[/cyan] "
-            f"[dim]{s.get('user_name', '')}[/dim] "
+            f"[dim]{esc(session_id[:12])}…[/dim] "
+            f"[cyan]{esc(s.get('platform', ''))}[/cyan] "
+            f"[dim]{esc(s.get('user_name', ''))}[/dim] "
             f"[dim]{relative_time(s.get('first_event_time'))}[/dim]"
         )
         session_node = tree.add(session_label)
 
         # Fetch session detail for turns
-        try:
-            detail = client.get(f"/api/v1/sessions/{session_id}")
-        except Exception:
-            # Detail endpoint failed (e.g. no session parser for this harness)
-            # Show summary info we already have
-            session_node.add(f"[dim]prompts: {prompt_count}, tools: {tool_count}[/dim]")
-            session_node.add(f"[dim]tokens: {_format_tokens(tokens_in, tokens_out)}[/dim]")
-            if s.get("model"):
-                session_node.add(f"[dim]model: {s['model']}[/dim]")
-            continue
+        detail = client.get(f"/api/v1/sessions/{quote(session_id, safe='')}")
 
         events = detail.get("events", [])
         if not events:
@@ -1461,17 +1446,17 @@ def _render_sessions_detail(sessions: list[dict], full: bool = False):
 
             if etype in ("user_prompt", "human_turn", "hook_userpromptsubmit"):
                 prompt_text = body[:100] + ("…" if len(body) > 100 else "")
-                session_node.add(f"[bold green]▶[/bold green] {prompt_text}")
+                session_node.add(f"[bold green]▶[/bold green] {esc(prompt_text)}")
             elif etype in ("assistant_response", "assistant_turn", "hook_assistant_response"):
                 if full:
                     resp_text = body[:150] + ("…" if len(body) > 150 else "")
-                    session_node.add(f"  [dim]{resp_text}[/dim]")
+                    session_node.add(f"  [dim]{esc(resp_text)}[/dim]")
             elif etype in ("tool_call", "hook_pretooluse"):
                 tool_name = attrs.get("tool_name") or body[:50]
-                session_node.add(f"  [cyan]⚡ {tool_name}[/cyan]")
+                session_node.add(f"  [cyan]⚡ {esc(tool_name)}[/cyan]")
             elif etype in ("tool_result", "hook_posttooluse") and full:
                 result_text = body[:100] + ("…" if len(body) > 100 else "")
-                session_node.add(f"    [dim]→ {result_text}[/dim]")
+                session_node.add(f"    [dim]→ {esc(result_text)}[/dim]")
 
         # Show subagent sessions if available
         for sub in detail.get("subagent_sessions", []):
@@ -1482,10 +1467,10 @@ def _render_sessions_detail(sessions: list[dict], full: bool = False):
                     etype = evt.get("event_name", "")
                     body = evt.get("body", "") or ""
                     if etype in ("user_prompt", "human_turn"):
-                        sub_node.add(f"[green]▶[/green] {body[:80]}")
+                        sub_node.add(f"[green]▶[/green] {esc(body[:80])}")
                     elif etype == "tool_call":
                         tool_name = evt.get("attributes", {}).get("tool_name") or body[:40]
-                        sub_node.add(f"  [cyan]⚡ {tool_name}[/cyan]")
+                        sub_node.add(f"  [cyan]⚡ {esc(tool_name)}[/cyan]")
 
     console.print(tree)
 
@@ -1501,87 +1486,6 @@ def _format_tokens(input_tokens: int, output_tokens: int) -> str:
         return str(n)
 
     return f"{_fmt(input_tokens)} / {_fmt(output_tokens)}"
-
-
-@ops_app.command(name="spans")
-def _spans(
-    trace_id: str = typer.Argument(..., help="Trace ID"),
-    output: OutputMode = typer.Option("table", "--output", "-o"),
-):
-    """List spans for a trace.
-
-    Shows all spans within a trace, including type, method, latency,
-    status, and schema validation result. Use a trace ID from
-    `observal ops traces` output.
-
-    Examples:
-
-        observal ops spans abc123-trace-id
-
-        observal ops spans abc123-trace-id --output json
-    """
-    _spans_impl(trace_id, output)
-
-
-def _spans_impl(trace_id, output):
-    query = """query($traceId: String!) {
-        trace(traceId: $traceId) {
-            traceId name
-            spans {
-                spanId type name method latencyMs status
-                toolSchemaValid toolsAvailable
-            }
-        }
-    }"""
-
-    with spinner("Querying spans..."):
-        result = _graphql_query(query, {"traceId": trace_id})
-        trace_data = result.get("data", {}).get("trace")
-
-    if not trace_data:
-        rprint(f"[yellow]Trace {trace_id} not found.[/yellow]")
-        raise typer.Exit(1)
-
-    if output == "json":
-        output_json(trace_data)
-        return
-
-    rprint(f"\n[bold]Trace:[/bold] {trace_data['traceId']}: {trace_data.get('name', '')}\n")
-
-    spans_data = trace_data.get("spans", [])
-    if not spans_data:
-        rprint("[dim]No spans.[/dim]")
-        return
-
-    table = Table(show_lines=False, padding=(0, 1))
-    table.add_column("#", style="dim", width=3)
-    table.add_column("Span ID", style="dim", max_width=14)
-    table.add_column("Type")
-    table.add_column("Name", no_wrap=True)
-    table.add_column("Method")
-    table.add_column("Latency", justify="right")
-    table.add_column("Status")
-    table.add_column("Schema")
-    for i, s in enumerate(spans_data, 1):
-        schema = (
-            "[green]✓[/green]"
-            if s.get("toolSchemaValid") is True
-            else ("[red]✗[/red]" if s.get("toolSchemaValid") is False else "[dim]--[/dim]")
-        )
-        latency = f"{s['latencyMs']}ms" if s.get("latencyMs") else "--"
-        st = s.get("status", "")
-        st_display = f"[red]{st}[/red]" if st == "error" else f"[green]{st}[/green]" if st == "success" else st
-        table.add_row(
-            str(i),
-            s["spanId"][:12] + "…",
-            s.get("type", ""),
-            s.get("name", ""),
-            s.get("method", "") or "--",
-            latency,
-            st_display,
-            schema,
-        )
-    console.print(table)
 
 
 # ═══════════════════════════════════════════════════════════

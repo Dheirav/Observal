@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 from contextlib import nullcontext
 from io import StringIO
 from pathlib import Path
@@ -12,11 +13,17 @@ from types import SimpleNamespace
 
 import pytest
 import typer
+from click import Group
 from rich.console import Console
+from typer.main import get_command
+from typer.testing import CliRunner
 
 from observal_cli import cmd_ops as ops
 from observal_cli.install_detector import InstallInfo, InstallMethod
+from observal_cli.main import app as cli_app
 from observal_cli.upgrade_lock import UpgradeLockError
+
+runner = CliRunner()
 
 
 class FakeConsole:
@@ -54,7 +61,6 @@ def cli(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     monkeypatch.setattr(ops.config, "save_last_results", saved_results.append)
     monkeypatch.setattr(ops, "password_input", blocked("password_input"))
     monkeypatch.setattr(ops.typer, "confirm", blocked("confirm"))
-    monkeypatch.setattr(ops.time, "sleep", blocked("sleep"))
     for method in ("get", "get_text", "post", "put", "delete"):
         monkeypatch.setattr(ops.client, method, blocked(f"client.{method}"))
 
@@ -276,101 +282,8 @@ def test_telemetry_status_tolerates_unavailable_local_stats(cli, monkeypatch):
     ops.telemetry_status()
 
     assert "unknown" in cli.text()
-    assert "Durable Session Outbox" not in cli.text()
-
-
-def test_telemetry_test_posts_a_synthetic_tool_call(cli, monkeypatch):
-    calls = []
-    monkeypatch.setattr(ops.client, "post", lambda path, body: calls.append((path, body)) or {"ingested": 1})
-
-    ops.telemetry_test()
-
-    assert calls[0][0] == "/api/v1/telemetry/events"
-    assert calls[0][1]["tool_calls"] == [
-        {
-            "mcp_server_id": "test-mcp",
-            "tool_name": "test_tool",
-            "status": "success",
-            "latency_ms": 42,
-            "harness": "test",
-        }
-    ]
-    assert "Ingested: 1" in cli.text()
-
-
-def test_metrics_renders_agent_metrics_and_resolves_alias(cli, monkeypatch):
-    calls = []
-    monkeypatch.setattr(ops.config, "resolve_alias", lambda value: "agent-id")
-    monkeypatch.setattr(
-        ops.client,
-        "get",
-        lambda path: (
-            calls.append(path)
-            or {
-                "total_interactions": 12,
-                "total_downloads": 9,
-                "acceptance_rate": 0.8,
-                "avg_tool_calls": 2.5,
-                "avg_latency_ms": 19.6,
-            }
-        ),
-    )
-
-    ops._metrics("alias", "agent", "table", False)
-    ops._metrics_impl("alias", "agent", "json", False)
-
-    assert calls == ["/api/v1/agents/agent-id/metrics", "/api/v1/agents/agent-id/metrics"]
-    assert cli.json == [
-        {
-            "total_interactions": 12,
-            "total_downloads": 9,
-            "acceptance_rate": 0.8,
-            "avg_tool_calls": 2.5,
-            "avg_latency_ms": 19.6,
-        }
-    ]
-    output = cli.text()
-    assert "Interactions:   12" in output
-    assert "Downloads:      9" in output
-    assert "Acceptance:     [green]80.0%" in output
-    assert "Avg latency:    20ms" in output
-
-
-def test_metrics_renders_mcp_metrics_and_supports_json(cli, monkeypatch):
-    responses = [
-        {
-            "total_downloads": 4,
-            "total_calls": 10,
-            "error_rate": 0.02,
-            "avg_latency_ms": 7.8,
-            "p50_latency_ms": 3,
-            "p90_latency_ms": 8,
-            "p99_latency_ms": 20,
-        },
-        {"total_calls": 11},
-    ]
-    calls = []
-    monkeypatch.setattr(ops.client, "get", lambda path: calls.append(path) or responses.pop(0))
-
-    ops._metrics_impl("mcp-id", "mcp", "table", False)
-    ops._metrics_impl("mcp-id", "mcp", "json", False)
-
-    assert calls == ["/api/v1/mcps/mcp-id/metrics", "/api/v1/mcps/mcp-id/metrics"]
-    assert "Total calls: 10" in cli.text()
-    assert "Error rate:  [yellow]2.00%" in cli.text()
-    assert "Latency p50/p90/p99: 3/8/20ms" in cli.text()
-    assert cli.json == [{"total_calls": 11}]
-
-
-def test_metrics_watch_refreshes_until_interrupted(cli, monkeypatch):
-    monkeypatch.setattr(ops.client, "get", lambda path: {"total_calls": 1})
-    monkeypatch.setattr(ops.time, "sleep", raises(KeyboardInterrupt()))
-
-    ops._metrics_impl("mcp-id", "mcp", "table", True)
-
-    assert cli.console.clear_count == 1
-    assert "Watching metrics for mcp-id" in cli.text()
-    assert "Stopped" in cli.text()
+    assert "Durable Session Outbox" in cli.text()
+    assert "Unavailable" in cli.text()
 
 
 def test_top_renders_tables_json_and_empty_states(cli, monkeypatch):
@@ -415,26 +328,29 @@ def test_rate_accepts_uuid_without_lookup(cli, monkeypatch):
     assert "Rated" in cli.text()
 
 
-@pytest.mark.parametrize(
-    ("listing_type", "endpoint"),
-    [("agent", "/api/v1/agents/builder"), ("skill", "/api/v1/skills/builder")],
-)
-def test_resolve_listing_id_looks_up_non_uuid_names(cli, monkeypatch, listing_type, endpoint):
+@pytest.mark.parametrize("listing_type", ["agent", "skill"])
+def test_resolve_listing_id_looks_up_non_uuid_names(cli, monkeypatch, listing_type):
     calls = []
-    monkeypatch.setattr(ops.client, "get", lambda path: calls.append(path) or {"id": "resolved-id"})
+    monkeypatch.setattr(ops.client, "resolve_registry_reference", lambda item_type, value: "builder")
+
+    def get(path, params=None):
+        calls.append((path, params))
+        return {"id": "resolved-id"}
+
+    monkeypatch.setattr(ops.client, "get", get)
 
     assert ops._resolve_listing_id("builder", listing_type) == "resolved-id"
-    assert calls == [endpoint]
+    assert calls == [
+        ("/api/v1/registry/resolve", {"type": listing_type, "identifier": "builder"}),
+    ]
 
 
-def test_resolve_listing_id_reports_lookup_failures(cli, monkeypatch):
+def test_resolve_listing_id_propagates_lookup_failures(cli, monkeypatch):
+    monkeypatch.setattr(ops.client, "resolve_registry_reference", lambda item_type, value: "missing")
     monkeypatch.setattr(ops.client, "get", raises(RuntimeError("missing")))
 
-    with pytest.raises(typer.Exit) as exc_info:
+    with pytest.raises(RuntimeError, match="missing"):
         ops._resolve_listing_id("missing", "prompt")
-
-    assert exc_info.value.exit_code == 1
-    assert "Could not find prompt named 'missing'" in cli.text()
 
 
 def test_rate_update_fetches_the_review_and_only_sends_supplied_fields(cli, monkeypatch):
@@ -459,8 +375,8 @@ def test_rate_update_requires_at_least_one_change(cli, monkeypatch):
     with pytest.raises(typer.Exit) as exc_info:
         ops._rate_update(listing_id, "mcp", None, None, None)
 
-    assert exc_info.value.exit_code == 1
-    assert "Nothing to update" in cli.text()
+    assert exc_info.value.exit_code == 7
+    assert "No feedback changes were provided" in cli.text()
 
 
 def test_rate_delete_fetches_then_deletes_the_review(cli, monkeypatch):
@@ -469,7 +385,7 @@ def test_rate_delete_fetches_then_deletes_the_review(cli, monkeypatch):
     monkeypatch.setattr(ops.client, "get", lambda path: calls.append(("get", path)) or {"id": "review-id"})
     monkeypatch.setattr(ops.client, "delete", lambda path: calls.append(("delete", path)))
 
-    ops._rate_delete(listing_id, "mcp")
+    ops._rate_delete(listing_id, "mcp", yes=True)
 
     assert calls == [
         ("get", f"/api/v1/feedback/mine/mcp/{listing_id}"),
@@ -489,9 +405,10 @@ def test_feedback_renders_summary_and_review_comments(cli, monkeypatch):
 
     monkeypatch.setattr(ops.client, "get", fake_get)
 
-    ops._feedback("item", "mcp", "table")
+    listing_id = "11111111-1111-1111-1111-111111111111"
+    ops._feedback(listing_id, "mcp", "table")
 
-    assert calls == ["/api/v1/feedback/mcp/item", "/api/v1/feedback/summary/item"]
+    assert calls == [f"/api/v1/feedback/mcp/{listing_id}", f"/api/v1/feedback/summary/{listing_id}"]
     assert "[bold]4.4[/bold]/5 (2 reviews)" in cli.text()
     assert "great" in cli.text()
 
@@ -507,8 +424,9 @@ def test_feedback_supports_json_and_empty_results(cli, monkeypatch):
     )
     monkeypatch.setattr(ops.client, "get", lambda path: next(responses))
 
-    ops._feedback_impl("item", "agent", "json")
-    ops._feedback_impl("item", "agent", "table")
+    listing_id = "11111111-1111-1111-1111-111111111111"
+    ops._feedback_impl(listing_id, "agent", "json")
+    ops._feedback_impl(listing_id, "agent", "table")
 
     assert cli.json == [{"summary": {"average_rating": 4, "total_reviews": 1}, "reviews": [{"rating": 4}]}]
     assert "No feedback yet" in cli.text()
@@ -1042,18 +960,6 @@ def test_admin_set_role_updates_the_matching_user(cli, monkeypatch):
     assert "alice@example.test is now admin" in cli.text()
 
 
-def test_graphql_query_builds_payload_with_optional_variables(cli, monkeypatch):
-    calls = []
-    monkeypatch.setattr(ops.client, "post", lambda path, body: calls.append((path, body)) or {"ok": True})
-
-    assert ops._graphql_query("query One") == {"ok": True}
-    assert ops._graphql_query("query Two", {"id": "trace"}) == {"ok": True}
-    assert calls == [
-        ("/api/v1/graphql", {"query": "query One"}),
-        ("/api/v1/graphql", {"query": "query Two", "variables": {"id": "trace"}}),
-    ]
-
-
 def test_traces_passes_filters_and_supports_json(cli, monkeypatch):
     sessions = [{"session_id": "one"}]
     calls = []
@@ -1109,17 +1015,6 @@ def test_render_sessions_summary_formats_counts_and_tokens(cli, monkeypatch):
 def test_render_sessions_detail_handles_failures_empty_sessions_events_and_subagents(cli, monkeypatch):
     sessions = [
         {
-            "session_id": "failed-session",
-            "prompt_count": 2,
-            "tool_result_count": 1,
-            "total_input_tokens": 1000,
-            "total_output_tokens": 20,
-            "platform": "kiro",
-            "user_name": "Alice",
-            "first_event_time": "first",
-            "model": "model-a",
-        },
-        {
             "session_id": "empty-session",
             "prompt_count": 0,
             "tool_result_count": 0,
@@ -1157,8 +1052,6 @@ def test_render_sessions_detail_handles_failures_empty_sessions_events_and_subag
 
     def fake_get(path):
         session_id = path.rsplit("/", 1)[1]
-        if session_id == "failed-session":
-            raise RuntimeError("detail unavailable")
         return details[session_id]
 
     monkeypatch.setattr(ops.client, "get", fake_get)
@@ -1166,10 +1059,6 @@ def test_render_sessions_detail_handles_failures_empty_sessions_events_and_subag
     ops._render_sessions_detail(sessions, full=True)
 
     output = render(cli.console.renderables[0])
-    assert "2 prompts" in output
-    assert "prompts: 2, tools: 1" in output
-    assert "tokens: 1.0k / 20" in output
-    assert "model: model-a" in output
     assert "prompts: 0, tools: 0" in output
     assert "search" in output
     assert "fallback-tool" in output
@@ -1185,78 +1074,6 @@ def test_render_sessions_detail_handles_failures_empty_sessions_events_and_subag
 )
 def test_format_tokens_compacts_large_counts(input_tokens, output_tokens, expected):
     assert ops._format_tokens(input_tokens, output_tokens) == expected
-
-
-def test_spans_reports_missing_traces(cli, monkeypatch):
-    monkeypatch.setattr(ops, "_graphql_query", lambda query, variables: {"data": {"trace": None}})
-
-    with pytest.raises(typer.Exit) as exc_info:
-        ops._spans("missing", "table")
-
-    assert exc_info.value.exit_code == 1
-    assert "Trace missing not found" in cli.text()
-
-
-def test_spans_supports_json_and_empty_span_lists(cli, monkeypatch):
-    traces = iter(
-        [
-            {"traceId": "trace", "name": "one", "spans": [{"spanId": "span"}]},
-            {"traceId": "trace", "name": "empty", "spans": []},
-        ]
-    )
-    monkeypatch.setattr(
-        ops,
-        "_graphql_query",
-        lambda query, variables: {"data": {"trace": next(traces)}},
-    )
-
-    ops._spans_impl("trace", "json")
-    ops._spans_impl("trace", "table")
-
-    assert cli.json == [{"traceId": "trace", "name": "one", "spans": [{"spanId": "span"}]}]
-    assert "No spans" in cli.text()
-
-
-def test_spans_renders_schema_latency_and_status_variants(cli, monkeypatch):
-    trace = {
-        "traceId": "trace-id",
-        "name": "workflow",
-        "spans": [
-            {
-                "spanId": "span-success-123456",
-                "type": "tool",
-                "name": "search",
-                "method": "call",
-                "latencyMs": 12,
-                "status": "success",
-                "toolSchemaValid": True,
-            },
-            {
-                "spanId": "span-error-123456",
-                "type": "tool",
-                "name": "write",
-                "method": None,
-                "latencyMs": 0,
-                "status": "error",
-                "toolSchemaValid": False,
-            },
-            {
-                "spanId": "span-other-123456",
-                "type": "agent",
-                "name": "think",
-                "status": "pending",
-            },
-        ],
-    }
-    monkeypatch.setattr(ops, "_graphql_query", lambda query, variables: {"data": {"trace": trace}})
-
-    ops._spans_impl("trace-id", "table")
-
-    table = cli.console.renderables[0]
-    assert table.columns[4]._cells == ["call", "--", "--"]
-    assert table.columns[5]._cells == ["12ms", "--", "--"]
-    assert table.columns[6]._cells == ["[green]success[/green]", "[red]error[/red]", "pending"]
-    assert table.columns[7]._cells == ["[green]✓[/green]", "[red]✗[/red]", "[dim]--[/dim]"]
 
 
 def test_do_install_delegates_to_upgrade_executor(cli, monkeypatch):
@@ -1564,3 +1381,148 @@ def test_status_reports_update_availability(cli, monkeypatch, release, newer, me
     assert "Version:  [bold]v1.0.0" in output
     assert "uv_tool" in output
     assert message in output
+
+
+def test_every_remaining_ops_workflow_has_output_and_dead_commands_are_removed():
+    command = get_command(cli_app).commands["ops"]
+
+    def leaves(group):
+        for name, child in group.commands.items():
+            if isinstance(child, Group) and child.commands:
+                yield from leaves(child)
+            else:
+                yield name, child
+
+    rows = list(leaves(command))
+    assert len(rows) == 11
+    assert all(any(parameter.name == "output" for parameter in leaf.params) for _name, leaf in rows)
+    assert "metrics" not in command.commands
+    assert "spans" not in command.commands
+    assert "test" not in command.commands["telemetry"].commands
+
+
+def test_telemetry_status_json_combines_server_and_outbox(cli, monkeypatch):
+    from observal_cli import telemetry_buffer
+
+    server = {"status": "ok", "tool_call_events": 2, "agent_interaction_events": 3}
+    monkeypatch.setattr(ops.client, "get", lambda path: server)
+    monkeypatch.setattr(
+        telemetry_buffer,
+        "stats",
+        lambda: {
+            "pending": 1,
+            "failed": 0,
+            "sent": 0,
+            "total": 1,
+            "oldest_pending": None,
+            "last_sync": None,
+            "bytes": 64,
+        },
+    )
+
+    ops.telemetry_status("json")
+
+    assert cli.json == [{"server": server, "outbox": {"available": True, **telemetry_buffer.stats()}}]
+    assert cli.lines == []
+
+
+def test_feedback_mutations_return_direct_json(cli, monkeypatch):
+    listing_id = "11111111-1111-1111-1111-111111111111"
+    post = []
+    put = []
+    delete = []
+    monkeypatch.setattr(
+        ops.client,
+        "post",
+        lambda path, body: post.append((path, body)) or {"id": "feedback-1", "rating": 5},
+    )
+    monkeypatch.setattr(ops.client, "get", lambda path: {"id": "feedback-1"})
+    monkeypatch.setattr(
+        ops.client,
+        "put",
+        lambda path, body: put.append((path, body)) or {"id": "feedback-1", "rating": 4},
+    )
+    monkeypatch.setattr(
+        ops.client,
+        "delete",
+        lambda path: delete.append(path) or {},
+    )
+
+    ops._rate_impl(listing_id, 5, "mcp", "great", False, "json")
+    ops._rate_update(listing_id, "mcp", 4, None, None, "json")
+    ops._rate_delete(listing_id, "mcp", yes=True, output="json")
+
+    assert cli.json == [
+        {"id": "feedback-1", "rating": 5},
+        {"id": "feedback-1", "rating": 4},
+        {},
+    ]
+    assert post[0][0] == "/api/v1/feedback"
+    assert put == [("/api/v1/feedback/feedback-1", {"rating": 4})]
+    assert delete == ["/api/v1/feedback/feedback-1"]
+    assert cli.lines == []
+
+
+def test_traces_detail_json_uses_current_session_endpoints(cli, monkeypatch):
+    sessions = [{"session_id": "session/one", "platform": "kiro"}]
+    detail = {"session_id": "session/one", "events": [{"event_name": "tool_call"}]}
+    calls = []
+
+    def get(path, params=None):
+        calls.append((path, params))
+        return sessions if path == "/api/v1/sessions" else detail
+
+    monkeypatch.setattr(ops.client, "get", get)
+
+    ops._traces_impl("kiro", 7, 5, False, True, "json")
+
+    assert calls == [
+        ("/api/v1/sessions", {"limit": 5, "platform": "kiro", "days": 7}),
+        ("/api/v1/sessions/session%2Fone", None),
+    ]
+    assert cli.json == [{"view": "span", "items": [{"summary": sessions[0], "detail": detail}]}]
+
+
+def test_trace_detail_failure_propagates(cli, monkeypatch):
+    monkeypatch.setattr(ops.client, "get", raises(RuntimeError("detail unavailable")))
+
+    with pytest.raises(RuntimeError, match="detail unavailable"):
+        ops._render_sessions_detail([{"session_id": "session"}], full=True)
+
+
+def test_ops_type_validation_is_categorized(cli):
+    with pytest.raises(typer.Exit) as raised:
+        ops._top_impl("unknown", "json")
+
+    assert raised.value.exit_code == 7
+    assert "Unknown ranking type" in cli.text()
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        [
+            "ops",
+            "rate-update",
+            "11111111-1111-1111-1111-111111111111",
+            "--output",
+            "json",
+        ],
+        [
+            "ops",
+            "rate-delete",
+            "11111111-1111-1111-1111-111111111111",
+            "--output",
+            "json",
+        ],
+        ["ops", "traces", "--platform", "unknown", "--output", "json"],
+        ["ops", "insights", "generate", "agent", "--version", "bad", "--output", "json"],
+        ["ops", "logs", "--level", "verbose", "--output", "json"],
+    ],
+)
+def test_ops_json_validation_uses_shared_error_boundary(arguments):
+    result = runner.invoke(cli_app, arguments)
+
+    assert result.exit_code == 7
+    assert result.stdout == ""
+    assert json.loads(result.stderr)["error"]["category"] == "validation"

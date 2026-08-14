@@ -66,7 +66,7 @@ If you run a single instance and have a ~30-second maintenance window:
 3. Apply migrations out of band with `alembic upgrade head` and `python -m services.clickhouse.migrations` from `observal-server`, or run the init container once.
 4. Pull/rebuild new images: `docker compose pull && docker compose build observal-api observal-worker`.
 5. Start: `docker compose up -d`.
-6. Smoke test: `observal auth status && observal ops telemetry test`.
+6. Smoke test: `observal auth status --output json && observal ops telemetry status --output json`.
 
 Web UI, Postgres, ClickHouse, Redis stay up throughout. Users see a brief API outage (~15–30 s).
 
