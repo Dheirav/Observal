@@ -57,7 +57,7 @@ observal registry skill show platform-tools/internal-skill --output json
 
 ## MCP servers
 
-MCP server registry commands for submitting, browsing, installing, editing, and deleting MCP server listings.
+MCP server registry commands for submitting, browsing, generating configuration, editing, and archiving MCP server listings.
 
 ### `observal registry mcp submit`
 
@@ -80,6 +80,7 @@ observal registry mcp submit --git <url> [OPTIONS]
 | `--yes` | `-y` | Accept all defaults |
 | `--draft` | | Save as draft instead of submitting for review |
 | `--submit` | | Submit an existing draft for review (MCP ID) |
+| `--output` | `-o` | Output format: `table` or `json` |
 
 #### Default flow (JSON paste)
 
@@ -109,7 +110,7 @@ observal registry mcp submit --git <url> [OPTIONS]
 observal registry mcp submit
 
 # Non-interactive with piped JSON
-echo '{"command": "npx", "args": ["-y", "@example/mcp-server"]}' | observal registry mcp submit -y -n my-server -c developer-tools
+echo '{"command": "npx", "args": ["-y", "@example/mcp-server"]}' | observal registry mcp submit -y -n my-server -c developer-tools --output json
 
 # Save as draft
 observal registry mcp submit --draft
@@ -157,7 +158,7 @@ observal registry mcp list [--search TERM] [--category CAT] [--limit N] [--sort 
 
 ```bash
 observal registry mcp list --search github
-observal registry mcp list --category ai --output json
+observal registry mcp list --category ai-ml --output json
 observal registry mcp list --interactive
 observal registry mcp list --sort category --limit 10
 ```
@@ -197,16 +198,22 @@ observal registry mcp show @fav --output json
 
 ### `observal registry mcp install`
 
-Generate a harness config snippet for an MCP server. Prompts for required environment variables and headers interactively.
+Generate a harness config snippet for an MCP server. This command does not write harness configuration or record an installation. Prompts for required environment variables and headers unless non-interactive or machine output is selected.
 
 ```bash
-observal registry mcp install <id-or-name> --harness <harness> [--raw]
+observal registry mcp install <id-or-name> --harness <harness> [options]
 ```
 
 | Option | Short | Description |
 | --- | --- | --- |
 | `--harness` | `-i` | Target harness (required) |
-| `--raw` | | Output bare JSON only, suitable for piping to a file |
+| `--version` | `-V` | Generate configuration for one version |
+| `--env` | `-e` | Environment value as `KEY=VALUE`; repeatable |
+| `--header` | | Header value as `KEY=VALUE`; repeatable |
+| `--env-file` | | Read environment values from a file |
+| `--no-prompt` | `-y` | Use supplied values and placeholders without prompting |
+| `--raw` | | Output only the bare config snippet for piping |
+| `--output` | `-o` | Output the complete operation result as table or JSON |
 
 ```bash
 observal registry mcp install my-server --harness claude-code
@@ -235,6 +242,9 @@ observal registry mcp edit <id-or-name> [OPTIONS]
 | `--git-url` | | New git URL |
 | `--command` | | New command |
 | `--url` | | New URL (SSE/HTTP) |
+| `--bump` | | Version bump for approved listings: `patch`, `minor`, or `major` |
+| `--changelog` | | Changelog for an approved-listing version |
+| `--output` | `-o` | Output format: `table` or `json` |
 
 Without flags, opens an interactive JSON paste prompt (same format as submit).
 

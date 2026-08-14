@@ -83,9 +83,9 @@ Dismissals are per-user and permanent until overwritten, so confirm before dismi
 Paste the MCP JSON config. Optionally include `--git` so Observal clones the repo and detects local OCI setup for Dockerfile, Containerfile, or compose `build:`.
 
 ```bash
-observal registry mcp submit --name my-mcp --category developer-tools --yes
-observal registry mcp submit --git https://github.com/org/mcp-server --name my-mcp --category developer-tools --yes
-observal registry mcp submit --name internal-mcp --category developer-tools --team platform-tools --visibility team --yes
+printf '%s\n' '{"command":"npx","args":["-y","@example/mcp-server"]}' | observal registry mcp submit --name my-mcp --category developer-tools --yes --output json
+printf '%s\n' '{"command":"docker","args":["run","org/mcp-server"]}' | observal registry mcp submit --git https://github.com/org/mcp-server --name my-mcp --category developer-tools --yes --output json
+printf '%s\n' '{"command":"npx","args":["internal-mcp"]}' | observal registry mcp submit --name internal-mcp --category developer-tools --team platform-tools --visibility team --yes --output json
 ```
 
 The command still expects pasted JSON. If a local image must be built, follow the returned setup instructions, for example `docker build -t name:latest .`. Manual installs also print these setup instructions before the MCP can be used.
@@ -146,9 +146,9 @@ All types support `--draft` to save without review and `--submit namespace/slug`
 ## Procedure: Install Component
 
 ```bash
-observal registry mcp install NAME --harness kiro
+observal registry mcp install NAME --harness kiro --no-prompt --output json
 observal registry mcp install NAME --harness claude-code --raw
-observal registry mcp install NAME --harness cursor --version 2.1.0
+observal registry mcp install NAME --harness cursor --version 2.1.0 --no-prompt --output json
 observal registry skill install NAME --harness kiro --scope user
 observal registry skill install NAME --harness claude-code --scope project
 observal registry skill install NAME --harness claude-code --version 1.2.0
@@ -169,8 +169,8 @@ observal registry hook install NAME --harness claude-code --platform darwin --di
 **Warning:** Editing an approved listing triggers a version bump flow. For draft/pending/rejected items, edits in place with an optimistic lock.
 
 ```bash
-observal registry mcp edit NAME --from-file updates.json
-observal registry mcp edit NAME --name new-name --description 'New desc'
+observal registry mcp edit NAME --from-file updates.json --output json
+observal registry mcp edit NAME --name new-name --description 'New desc' --output json
 observal registry skill edit NAME --from-file updates.json
 observal registry hook edit NAME --version 1.2.0 --event Stop
 observal registry prompt edit NAME --template 'New template body'
