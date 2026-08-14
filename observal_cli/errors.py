@@ -176,10 +176,10 @@ def debug_requested(args: tuple[str, ...] | list[str] | None = None) -> bool:
 
 
 def _json_stream_requested(command: click.Command, args: tuple[str, ...]) -> bool:
-    return (
-        _command_path(command, args) == "observal auth login"
-        and any(value in {"--sso", "--saml"} for value in args)
-        and json_errors_requested(args)
+    path = _command_path(command, args)
+    return json_errors_requested(args) and (
+        (path == "observal auth login" and any(value in {"--sso", "--saml"} for value in args))
+        or (path == "observal server logs" and any(value in {"--follow", "-f"} for value in args))
     )
 
 

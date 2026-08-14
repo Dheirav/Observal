@@ -30,8 +30,6 @@ OPERATION_LABELS = {
     "_remove_co_author": "Remove co-author",
     "_render_sessions_detail": "Show trace details",
     "_report_to_inbox": "Report outdated items",
-    "_require_admin": "Verify migration administrator",
-    "_require_super_admin": "Verify server administrator",
     "_resolve_agent_id": "Resolve insight agent",
     "_resolve_listing_id": "Resolve registry item",
     "_resolve_report_for_show": "Resolve insight report",

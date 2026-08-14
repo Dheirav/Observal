@@ -44,7 +44,7 @@ classifiers = [
 
 # Optional extras: only required for specific commands.
 # Install with `pip install observal-cli[migrate]` if you need the
-# `observal migrate` Parquet export/import pipeline.
+# `observal server migrate` Parquet export/import pipeline.
 [project.optional-dependencies]
 migrate = ["pyarrow>=15.0.0"]
 
