@@ -686,6 +686,7 @@ observal registry sandbox submit [OPTIONS]
 | `--from-file` | `-f` | Create from JSON file |
 | `--draft` | | Save as draft instead of submitting for review |
 | `--submit` | | Submit a draft for review (sandbox ID) |
+| `--output` | `-o` | Output format: `table` or `json` |
 
 ```bash
 observal registry sandbox submit
@@ -734,24 +735,11 @@ observal registry sandbox show @dev-env --output json
 
 ---
 
-### `observal registry sandbox install`
-
-Generate harness install configuration for a sandbox.
-
-> **Note:** Standalone sandbox install is deprecated. Sandboxes should be added as agent components instead. Preferred workflow: `observal agent add --type sandbox --id <id>` then `observal pull <agent> --harness <harness>`.
+Sandboxes are attached to agents by UUID and are installed when the agent is pulled. There is no standalone Sandbox install command.
 
 ```bash
-observal registry sandbox install <id-or-name> --harness <harness> [--raw]
-```
-
-| Option | Short | Description |
-| --- | --- | --- |
-| `--harness` | `-i` | Target harness (required) |
-| `--raw` | | Output bare JSON only |
-
-```bash
-observal registry sandbox install my-sandbox --harness claude-code
-observal registry sandbox install @env --harness cursor --raw
+observal agent add sandbox <sandbox-uuid>
+observal agent build
 ```
 
 ---
@@ -772,6 +760,7 @@ observal registry sandbox edit <id-or-name> [OPTIONS]
 | `--version` | `-v` | New version string |
 | `--runtime-type` | `-r` | New runtime type |
 | `--image` | `-i` | New container image |
+| `--output` | `-o` | Output format: `table` or `json` |
 
 ```bash
 observal registry sandbox edit my-sandbox --image node:20-alpine

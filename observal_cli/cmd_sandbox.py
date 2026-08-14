@@ -12,16 +12,19 @@ import json as _json
 from contextlib import nullcontext
 
 import typer
+from packaging.version import InvalidVersion, Version
 from rich import print as rprint
 from rich.table import Table
 
 from observal_cli import client, config
 from observal_cli.constants import VALID_HARNESSES, VALID_SANDBOX_NETWORK_POLICIES, VALID_SANDBOX_RUNTIME_TYPES
+from observal_cli.errors import ErrorCategory, fail
 from observal_cli.prompts import select_one, text_input
 from observal_cli.render import (
     OutputMode,
     console,
     display_name,
+    esc,
     handle,
     kv_panel,
     output_json,
@@ -45,6 +48,29 @@ def register_sandbox(app: typer.Typer):
     app.add_typer(sandbox_app, name="sandbox")
 
 
+def _json_object(value: str, label: str, operation: str) -> dict:
+    try:
+        parsed = _json.loads(value)
+    except _json.JSONDecodeError as error:
+        fail(
+            ErrorCategory.VALIDATION,
+            f"The {label} value is not valid JSON.",
+            operation=operation,
+            resource=label,
+            remediation="Provide a JSON object and retry.",
+            detail=repr(error),
+        )
+    if not isinstance(parsed, dict):
+        fail(
+            ErrorCategory.VALIDATION,
+            f"The {label} value must be a JSON object.",
+            operation=operation,
+            resource=label,
+            remediation="Provide a JSON object and retry.",
+        )
+    return parsed
+
+
 @sandbox_app.command(name="submit")
 def sandbox_submit(
     from_file: str | None = typer.Option(None, "--from-file", "-f", help="Create from JSON file"),
@@ -65,6 +91,7 @@ def sandbox_submit(
     submit_draft: str | None = typer.Option(None, "--submit", help="Submit a draft for review (sandbox ID)"),
     team: str | None = typer.Option(None, "--team", help="Teamspace UUID or handle"),
     visibility: str | None = typer.Option(None, "--visibility", help="Visibility: public or team"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """Submit a new sandbox environment for review.
 
@@ -77,19 +104,28 @@ def sandbox_submit(
     Examples:
         observal registry sandbox submit --from-file sandbox.json
         observal registry sandbox submit --draft
-        observal registry sandbox submit --submit abc123
+        observal registry sandbox submit --submit abc123 --output json
     """
-    rprint("[dim]Note: Only submit components you created (private) or are the point-of-contact for (external).[/dim]")
+    human_output = output != "json"
+    if human_output:
+        rprint("[dim]Note: Only submit components you created or represent.[/dim]")
     if draft and submit_draft:
-        rprint(
-            "[red]Cannot use --draft and --submit together.[/red] Use --draft to save a new draft, or --submit to submit an existing draft."
+        fail(
+            ErrorCategory.VALIDATION,
+            "Draft creation and draft submission cannot be requested together.",
+            operation="Submit sandbox",
+            resource="submit options",
+            remediation="Choose either draft creation or draft submission and retry.",
         )
-        raise typer.Exit(code=1)
     if submit_draft:
         resolved = client.resolve_registry_reference("sandbox", submit_draft)
-        with spinner("Submitting draft for review..."):
+        submit_context = nullcontext() if output == "json" else spinner("Submitting draft for review...")
+        with submit_context:
             result = client.post(f"/api/v1/sandboxes/{resolved}/submit")
-        rprint(f"[green]✓ Draft submitted for review![/green] ID: [bold]{result['id']}[/bold]")
+        if output == "json":
+            output_json(result)
+        else:
+            rprint(f"[green]✓ Draft submitted for review![/green] ID: [bold]{esc(result['id'])}[/bold]")
         return
 
     flag_mode = any(
@@ -114,21 +150,37 @@ def sandbox_submit(
         try:
             with open(from_file) as f:
                 payload = _json.load(f)
-        except _json.JSONDecodeError as e:
-            rprint(f"[red]Invalid JSON in {from_file}:[/red] {e}")
-            raise typer.Exit(code=1)
-        except FileNotFoundError:
-            rprint(f"[red]File not found:[/red] {from_file}")
-            raise typer.Exit(code=1)
+        except _json.JSONDecodeError as error:
+            fail(
+                ErrorCategory.VALIDATION,
+                "The sandbox submission file is not valid JSON.",
+                operation="Submit sandbox",
+                resource=from_file,
+                remediation="Correct the JSON and retry.",
+                detail=repr(error),
+            )
+        except FileNotFoundError as error:
+            fail(
+                ErrorCategory.NOT_FOUND,
+                "The sandbox submission file was not found.",
+                operation="Submit sandbox",
+                resource=from_file,
+                remediation="Provide an existing JSON file and retry.",
+                detail=repr(error),
+            )
+        if not isinstance(payload, dict):
+            fail(
+                ErrorCategory.VALIDATION,
+                "The sandbox submission file must contain a JSON object.",
+                operation="Submit sandbox",
+                resource=from_file,
+                remediation="Replace the file contents with a JSON object and retry.",
+            )
         if not payload.get("owner"):
             payload["owner"] = config.load().get("username", "")
     elif flag_mode:
-        try:
-            limits = _json.loads(resource_limits or "{}")
-            runtime_cfg = _json.loads(runtime_config or "{}")
-        except _json.JSONDecodeError as e:
-            rprint(f"[red]Invalid JSON option:[/red] {e}")
-            raise typer.Exit(1)
+        limits = _json_object(resource_limits or "{}", "resource limits", "Submit sandbox")
+        runtime_cfg = _json_object(runtime_config or "{}", "runtime config", "Submit sandbox")
         payload = {
             "name": name,
             "version": version or "1.0.0",
@@ -150,43 +202,93 @@ def sandbox_submit(
         if sandbox_path:
             payload["sandbox_path"] = sandbox_path
     else:
+        if output == "json":
+            fail(
+                ErrorCategory.VALIDATION,
+                "JSON mode requires explicit sandbox fields.",
+                operation="Submit sandbox",
+                resource="submit options",
+                remediation="Provide name, description, runtime type, image, and JSON configuration options.",
+            )
+        interactive_name = text_input("Sandbox name")
+        interactive_version = text_input("Version", default="1.0.0")
+        interactive_description = text_input("Description")
+        interactive_runtime = select_one("Runtime type", VALID_SANDBOX_RUNTIME_TYPES)
+        interactive_image = text_input("Image")
+        limits = _json_object(text_input("Resource limits (JSON)"), "resource limits", "Submit sandbox")
+        runtime_cfg = _json_object(
+            text_input("Runtime config (JSON)", default="{}"), "runtime config", "Submit sandbox"
+        )
         payload = {
-            "name": text_input("Sandbox name"),
-            "version": text_input("Version", default="1.0.0"),
-            "description": text_input("Description"),
+            "name": interactive_name,
+            "version": interactive_version,
+            "description": interactive_description,
             "owner": config.load().get("username", ""),
-            "runtime_type": select_one("Runtime type", VALID_SANDBOX_RUNTIME_TYPES),
-            "image": text_input("Image"),
-            "resource_limits": _json.loads(text_input("Resource limits (JSON)")),
-            "runtime_config": _json.loads(text_input("Runtime config (JSON)", default="{}")),
+            "runtime_type": interactive_runtime,
+            "image": interactive_image,
+            "resource_limits": limits,
+            "runtime_config": runtime_cfg,
+            "network_policy": "none",
+            "supported_harnesses": [],
         }
-    if flag_mode:
-        if not (
-            payload.get("name") and payload.get("description") and payload.get("runtime_type") and payload.get("image")
-        ):
-            rprint("[red]Error:[/red] --name, --description, --runtime-type, and --image are required")
-            raise typer.Exit(1)
-        if payload.get("runtime_type") not in VALID_SANDBOX_RUNTIME_TYPES:
-            rprint(f"[red]Error:[/red] Invalid runtime type: {payload.get('runtime_type')}")
-            raise typer.Exit(1)
-        if payload.get("network_policy") not in VALID_SANDBOX_NETWORK_POLICIES:
-            rprint(f"[red]Error:[/red] Invalid network policy: {payload.get('network_policy')}")
-            raise typer.Exit(1)
-        bad_harnesses = [h for h in payload.get("supported_harnesses", []) if h not in VALID_HARNESSES]
-        if bad_harnesses:
-            rprint(f"[red]Error:[/red] Invalid harness: {bad_harnesses[0]}")
-            raise typer.Exit(1)
+    if not (
+        payload.get("name") and payload.get("description") and payload.get("runtime_type") and payload.get("image")
+    ):
+        fail(
+            ErrorCategory.VALIDATION,
+            "Sandbox name, description, runtime type, and image are required.",
+            operation="Submit sandbox",
+            resource="sandbox payload",
+            remediation="Provide the required fields and retry.",
+        )
+    if payload.get("runtime_type") not in VALID_SANDBOX_RUNTIME_TYPES:
+        fail(
+            ErrorCategory.VALIDATION,
+            f"Unknown sandbox runtime type: {payload.get('runtime_type')}.",
+            operation="Submit sandbox",
+            resource="runtime type",
+            remediation=f"Choose one of: {', '.join(VALID_SANDBOX_RUNTIME_TYPES)}.",
+        )
+    if payload.get("network_policy", "none") not in VALID_SANDBOX_NETWORK_POLICIES:
+        fail(
+            ErrorCategory.VALIDATION,
+            f"Unknown sandbox network policy: {payload.get('network_policy')}.",
+            operation="Submit sandbox",
+            resource="network policy",
+            remediation=f"Choose one of: {', '.join(VALID_SANDBOX_NETWORK_POLICIES)}.",
+        )
+    bad_harnesses = [h for h in payload.get("supported_harnesses", []) if h not in VALID_HARNESSES]
+    if bad_harnesses:
+        fail(
+            ErrorCategory.VALIDATION,
+            f"Unknown harness: {bad_harnesses[0]}.",
+            operation="Submit sandbox",
+            resource="supported harnesses",
+            remediation=f"Choose from: {', '.join(VALID_HARNESSES)}.",
+        )
+    try:
+        Version(str(payload.get("version") or ""))
+    except InvalidVersion as error:
+        fail(
+            ErrorCategory.VALIDATION,
+            "The sandbox version is invalid.",
+            operation="Submit sandbox",
+            resource=str(payload.get("version") or ""),
+            remediation="Provide a valid version and retry.",
+            detail=repr(error),
+        )
 
     client.add_publish_target(payload, team, visibility)
-    if draft:
-        with spinner("Saving draft..."):
-            result = client.post("/api/v1/sandboxes/draft", payload)
-        rprint(f"[green]✓ Draft saved![/green] ID: [bold]{result['id']}[/bold]")
-    else:
-        with spinner("Submitting sandbox..."):
-            result = client.post("/api/v1/sandboxes/submit", payload)
-        rprint(f"[green]✓ Sandbox submitted![/green] ID: [bold]{result['id']}[/bold]")
-    rprint(f"  Install: [cyan]observal registry sandbox install {client.canonical_name(result)}[/cyan]")
+    submit_context = nullcontext() if output == "json" else spinner("Saving sandbox...")
+    with submit_context:
+        endpoint = "/api/v1/sandboxes/draft" if draft else "/api/v1/sandboxes/submit"
+        result = client.post(endpoint, payload)
+    if output == "json":
+        output_json(result)
+        return
+    message = "Draft saved" if draft else "Sandbox submitted"
+    rprint(f"[green]✓ {message}![/green] ID: [bold]{esc(result['id'])}[/bold]")
+    rprint(f"  Attach to an agent with ID: [cyan]{esc(result['id'])}[/cyan]")
 
 
 @sandbox_app.command(name="list")
@@ -208,6 +310,14 @@ def sandbox_list(
         observal registry sandbox list --runtime docker
         observal registry sandbox list --search "node" --output json
     """
+    if runtime and runtime not in VALID_SANDBOX_RUNTIME_TYPES:
+        fail(
+            ErrorCategory.VALIDATION,
+            f"Unknown sandbox runtime type: {runtime}.",
+            operation="List sandboxes",
+            resource="runtime filter",
+            remediation=f"Choose one of: {', '.join(VALID_SANDBOX_RUNTIME_TYPES)}.",
+        )
     params = {}
     if runtime:
         params["runtime"] = runtime
@@ -241,11 +351,11 @@ def sandbox_list(
     for i, item in enumerate(data, 1):
         table.add_row(
             str(i),
-            display_name(item),
-            item.get("version", ""),
-            handle(item),
+            esc(display_name(item)),
+            esc(item.get("version", "")),
+            esc(handle(item)),
             status_badge(item.get("status", "")),
-            str(item["id"])[:8] + "…",
+            esc(str(item["id"])[:8] + "…"),
         )
     console.print(table)
 
@@ -275,15 +385,15 @@ def sandbox_show(
         return
     console.print(
         kv_panel(
-            f"{display_name(item)} v{item.get('version', '?')}",
+            f"{esc(display_name(item))} v{esc(item.get('version', '?'))}",
             [
                 ("Status", status_badge(item.get("status", ""))),
-                ("Runtime", item.get("runtime_type", "N/A")),
-                ("Image", item.get("image", "N/A")),
-                ("Namespace", handle(item) or "N/A"),
-                ("Description", item.get("description", "")),
-                ("Created", relative_time(item.get("created_at"))),
-                ("ID", f"[dim]{item['id']}[/dim]"),
+                ("Runtime", esc(item.get("runtime_type", "N/A"))),
+                ("Image", esc(item.get("image", "N/A"))),
+                ("Namespace", esc(handle(item) or "N/A")),
+                ("Description", esc(item.get("description", ""))),
+                ("Created", esc(relative_time(item.get("created_at")))),
+                ("ID", f"[dim]{esc(item['id'])}[/dim]"),
             ],
             border_style="red",
         )
@@ -303,6 +413,7 @@ def sandbox_edit(
     runtime_config: str | None = typer.Option(None, "--runtime-config", help="Runtime config JSON"),
     network_policy: str | None = typer.Option(None, "--network-policy", help="New network policy"),
     entrypoint: str | None = typer.Option(None, "--entrypoint", help="New entrypoint"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="Output format: table or json"),
 ):
     """Edit a draft, rejected, or pending sandbox submission.
 
@@ -313,19 +424,39 @@ def sandbox_edit(
     Examples:
         observal registry sandbox edit my-sandbox --image node:20-alpine
         observal registry sandbox edit abc123 --from-file updates.json
-        observal registry sandbox edit @env --runtime-type docker --version 2.0.0
+        observal registry sandbox edit @env --runtime-type docker --version 2.0.0 --output json
     """
     resolved = client.resolve_registry_reference("sandbox", sandbox_id)
     if from_file:
         try:
             with open(from_file) as f:
                 updates = _json.load(f)
-        except _json.JSONDecodeError as e:
-            rprint(f"[red]Invalid JSON in {from_file}:[/red] {e}")
-            raise typer.Exit(code=1)
-        except FileNotFoundError:
-            rprint(f"[red]File not found:[/red] {from_file}")
-            raise typer.Exit(code=1)
+        except _json.JSONDecodeError as error:
+            fail(
+                ErrorCategory.VALIDATION,
+                "The sandbox update file is not valid JSON.",
+                operation="Edit sandbox",
+                resource=from_file,
+                remediation="Correct the JSON and retry.",
+                detail=repr(error),
+            )
+        except FileNotFoundError as error:
+            fail(
+                ErrorCategory.NOT_FOUND,
+                "The sandbox update file was not found.",
+                operation="Edit sandbox",
+                resource=from_file,
+                remediation="Provide an existing update file and retry.",
+                detail=repr(error),
+            )
+        if not isinstance(updates, dict):
+            fail(
+                ErrorCategory.VALIDATION,
+                "The sandbox update file must contain a JSON object.",
+                operation="Edit sandbox",
+                resource=from_file,
+                remediation="Replace the file contents with a JSON object and retry.",
+            )
     else:
         updates = {}
         if name is not None:
@@ -339,32 +470,59 @@ def sandbox_edit(
         if image is not None:
             updates["image"] = image
         if resource_limits is not None:
-            updates["resource_limits"] = _json.loads(resource_limits)
+            updates["resource_limits"] = _json_object(resource_limits, "resource limits", "Edit sandbox")
         if runtime_config is not None:
-            updates["runtime_config"] = _json.loads(runtime_config)
+            updates["runtime_config"] = _json_object(runtime_config, "runtime config", "Edit sandbox")
         if network_policy is not None:
             updates["network_policy"] = network_policy
         if entrypoint is not None:
             updates["entrypoint"] = entrypoint
 
     if not updates:
-        rprint("[yellow]No changes specified.[/yellow] Use --from-file or field options (--name, --description, etc.)")
-        raise typer.Exit(code=1)
-
-    try:
-        client.post(f"/api/v1/sandboxes/{resolved}/start-edit")
-    except Exception as exc:
-        if "409" in str(exc) or "currently being edited" in str(exc):
-            rprint(f"[red]✗ Cannot edit:[/red] {exc}")
-            raise typer.Exit(code=1)
-    try:
-        with spinner("Saving changes..."):
-            result = client.put(f"/api/v1/sandboxes/{resolved}/draft", updates)
-        rprint(f"[green]✓ Updated {result['name']}[/green] (status: {result.get('status', 'unknown')})")
-    except Exception as exc:
+        fail(
+            ErrorCategory.VALIDATION,
+            "No sandbox changes were provided.",
+            operation="Edit sandbox",
+            resource=sandbox_id,
+            remediation="Provide an update file or one or more field options.",
+        )
+    updated_runtime = updates.get("runtime_type")
+    if updated_runtime is not None and updated_runtime not in VALID_SANDBOX_RUNTIME_TYPES:
+        fail(
+            ErrorCategory.VALIDATION,
+            f"Unknown sandbox runtime type: {updated_runtime}.",
+            operation="Edit sandbox",
+            resource="runtime type",
+            remediation=f"Choose one of: {', '.join(VALID_SANDBOX_RUNTIME_TYPES)}.",
+        )
+    updated_policy = updates.get("network_policy")
+    if updated_policy is not None and updated_policy not in VALID_SANDBOX_NETWORK_POLICIES:
+        fail(
+            ErrorCategory.VALIDATION,
+            f"Unknown sandbox network policy: {updated_policy}.",
+            operation="Edit sandbox",
+            resource="network policy",
+            remediation=f"Choose one of: {', '.join(VALID_SANDBOX_NETWORK_POLICIES)}.",
+        )
+    updated_version = updates.get("version")
+    if updated_version is not None:
         try:
-            client.post(f"/api/v1/sandboxes/{resolved}/cancel-edit")
-        except Exception:
-            pass
-        rprint(f"[red]Failed to update:[/red] {exc}")
-        raise typer.Exit(code=1)
+            Version(str(updated_version))
+        except InvalidVersion as error:
+            fail(
+                ErrorCategory.VALIDATION,
+                "The sandbox version is invalid.",
+                operation="Edit sandbox",
+                resource=str(updated_version),
+                remediation="Provide a valid version and retry.",
+                detail=repr(error),
+            )
+
+    client.post(f"/api/v1/sandboxes/{resolved}/start-edit")
+    save_context = nullcontext() if output == "json" else spinner("Saving changes...")
+    with save_context:
+        result = client.put(f"/api/v1/sandboxes/{resolved}/draft", updates)
+    if output == "json":
+        output_json(result)
+    else:
+        rprint(f"[green]✓ Updated {esc(result['name'])}[/green] (status: {esc(result.get('status', 'unknown'))})")
