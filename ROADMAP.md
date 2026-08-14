@@ -201,7 +201,7 @@ Use component insights, criteria evaluations, review history, and source provena
 
 #### Agent-ready CLI contract, P1
 
-**Status:** Planned.
+**Status:** In progress. [PR #1687](https://github.com/Observal/Observal/pull/1687) established shared table and JSON output modes. [PR #1690](https://github.com/Observal/Observal/pull/1690) adds validated examples to every help screen, removes duplicate example options, and adds the categorized error contract across the command tree. The help and error slices are complete; universal command-by-command output, empty-state, prompt and progress behavior, and bundled-skill JSON use still require verification before the completion signal is met.
 
 Treat the CLI as an agent-facing API while preserving a clear human default:
 
@@ -214,7 +214,7 @@ Treat the CLI as an agent-facing API while preserving a clear human default:
 
 #### Agent-readiness audit for every CLI command, P1
 
-**Status:** Planned.
+**Status:** In progress in [PR #1690](https://github.com/Observal/Observal/pull/1690), which adds the CLI authoring contract and whole-tree help and error-boundary checks. The command-by-command bundled-skill matrix and supported-harness workflow trials remain.
 
 Exercise each command through its relevant bundled skill. Verify stable schemas and exit codes, complete non-interactive inputs, confirmation and dry-run safety, idempotence, bounded pagination and output, secret safety, realistic help examples, and exact next actions. Maintain a runnable command-by-command contract and smoke matrix and trial workflows through supported harness agents.
 
