@@ -184,12 +184,13 @@ def prompt_list(
     with fetch_ctx:
         data = client.get("/api/v1/prompts", params=params)
     if not data:
+        config.save_last_results([], "prompt")
         if output == "json":
             output_json([])
         else:
             rprint("[dim]No prompts found.[/dim]")
         return
-    config.save_last_results(data)
+    config.save_last_results(data, "prompt")
     if output == "json":
         output_json(data)
         return
@@ -229,12 +230,13 @@ def prompt_my(
     with fetch_ctx:
         data = client.get("/api/v1/prompts/my")
     if not data:
+        config.save_last_results([], "prompt")
         if output == "json":
             output_json([])
         else:
             rprint("[dim]You have no prompts.[/dim]")
         return
-    config.save_last_results(data)
+    config.save_last_results(data, "prompt")
     if output == "json":
         output_json(data)
         return

@@ -307,10 +307,7 @@ def _request_with_retry(
 
 
 def resolve_registry_reference(item_type: str, reference: str) -> str:
-    """Resolve a slash-qualified registry reference to a UUID; preserve all other shortcuts."""
-    resolved = config.resolve_alias(reference)
-    if "/" not in resolved:
-        return resolved
+    """Resolve a typed row, alias, or qualified registry reference to a UUID."""
     item_type = {
         "agents": "agent",
         "mcps": "mcp",
@@ -319,6 +316,13 @@ def resolve_registry_reference(item_type: str, reference: str) -> str:
         "prompts": "prompt",
         "sandboxes": "sandbox",
     }.get(item_type, item_type)
+    resolved = (
+        config.resolve_alias(reference, expected_type=item_type)
+        if reference.isdigit()
+        else config.resolve_alias(reference)
+    )
+    if "/" not in resolved:
+        return resolved
     data = get(
         "/api/v1/registry/resolve",
         params={"type": item_type, "identifier": resolved},

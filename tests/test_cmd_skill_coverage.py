@@ -448,7 +448,7 @@ def test_list_filters_json_and_caches_results(monkeypatch):
             "team_id": "team-1",
         },
     )
-    save.assert_called_once_with(data)
+    save.assert_called_once_with(data, "skill")
 
 
 def test_list_empty_rejects_plain_and_renders_table(monkeypatch):
@@ -468,7 +468,7 @@ def test_list_empty_rejects_plain_and_renders_table(monkeypatch):
     assert "No skills found" in empty.output
     assert "Skills (1)" in table.output
     assert "@alice" in table.output
-    assert save.call_count == 1
+    assert save.call_count == 2
 
 
 def test_my_empty_json_rejects_plain_and_renders_table(monkeypatch):
@@ -489,7 +489,7 @@ def test_my_empty_json_rejects_plain_and_renders_table(monkeypatch):
     assert "You have no skills" in empty.output
     assert json.loads(as_json.output) == [item]
     assert "My Skills (1)" in table.output
-    assert save.call_count == 2
+    assert save.call_count == 3
 
 
 def test_show_renders_metadata_and_json(monkeypatch):
@@ -1168,7 +1168,7 @@ def test_skill_co_author_commands_render_and_preserve_http_boundaries(monkeypatc
     assert "Added co-author" in email_added.output
     assert "Co-author removed" in removed.output
     assert post.call_args_list == [
-        call("/skills/skill-1/co-authors", json_data={"email": "dev@example.com"}),
-        call("/skills/skill-1/co-authors", json_data={"username": "other"}),
+        call("/api/v1/skills/skill-1/co-authors", json_data={"email": "dev@example.com"}),
+        call("/api/v1/skills/skill-1/co-authors", json_data={"username": "other"}),
     ]
-    delete.assert_called_once_with("/skills/skill-1/co-authors/user-1")
+    delete.assert_called_once_with("/api/v1/skills/skill-1/co-authors/user-1")

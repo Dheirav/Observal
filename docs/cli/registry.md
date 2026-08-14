@@ -4,7 +4,7 @@
 
 # observal registry
 
-Publish and manage registry components. The registry has five component types (MCP servers, skills, hooks, prompts, and sandboxes), and all five share a similar command structure.
+Publish and manage registry components. The registry has five component types: MCP servers, skills, hooks, prompts, and sandboxes.
 
 ## Subcommand structure
 
@@ -12,25 +12,30 @@ Publish and manage registry components. The registry has five component types (M
 observal registry <type> <action> [args]
 ```
 
-`<type>` is one of: `mcp`, `skill`, `hook`, `prompt`, `sandbox`.
+| Type | Submit | List | My | Show | Install | Render | Edit |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `mcp` | yes | yes | yes | yes | yes | no | yes |
+| `skill` | yes | yes | yes | yes | yes | no | yes |
+| `hook` | yes | yes | no | yes | yes | no | yes |
+| `prompt` | yes | yes | yes | yes | no | yes | yes |
+| `sandbox` | yes | yes | no | yes | no | no | yes |
 
-Every type supports these actions:
+Every component type also supports archive, restore, ownership transfer, and co-author management. Registry also contains the `models`, `version`, and `recommend` groups.
 
-| Action | Description |
-| --- | --- |
-| `submit` | Submit a new component for review |
-| `list` | List approved components |
-| `my` | List your own components across all statuses |
-| `show` | Show details for one component |
-| `install` | Generate a harness config snippet |
-| `edit` | Edit a draft, pending, or rejected submission |
-| `transfer-owner` | Transfer ownership to another username |
+All registry references accept a UUID, canonical `namespace/slug`, a unique legacy bare name, a row number from the latest list output for the same component type, or an `@alias`. Empty lists clear row references, and a row from one component type cannot be used with another. If the same bare slug exists in multiple namespaces, qualify it, for example `alice/search` instead of `search`.
 
-Notes:
-- `my` is available for `mcp`, `skill`, and `prompt`. Hooks and sandboxes do not have a `my` subcommand.
-- Prompts also support [`render`](#observal-registry-prompt-render).
+### Shared lifecycle and collaboration commands
 
-All registry references accept a UUID, canonical `namespace/slug`, a unique legacy bare name, a row number from the last `list` output, or an `@alias`. If the same bare slug exists in multiple namespaces, qualify it (for example, `alice/search` instead of `search`).
+```bash
+observal registry skill archive alice/reviewer --yes --output json
+observal registry skill unarchive alice/reviewer --yes --output json
+observal registry skill transfer-owner alice/reviewer bob --yes --output json
+observal registry skill co-authors list alice/reviewer --output json
+observal registry skill co-authors add alice/reviewer bob@example.com --output json
+observal registry skill co-authors remove alice/reviewer <user-uuid> --output json
+```
+
+Archive, restore, and ownership transfer require explicit confirmation in JSON mode. Their JSON output is the direct server result. Co-author list returns an array; add and remove return the direct server result.
 
 The namespace is the publisher's username or a teamspace handle. Usernames cannot change after the account owns a registry listing. Team members can browse approved private teamspace items in normal list results. Use `--team TEAM_HANDLE` to include public items plus that team's private items, or `--namespace TEAM_HANDLE` to restrict results to that namespace. Direct references use `team-handle/item-slug`. Nonmembers receive the same not-found response for private items as for unknown items.
 

@@ -221,12 +221,13 @@ def sandbox_list(
     with fetch_ctx:
         data = client.get("/api/v1/sandboxes", params=params)
     if not data:
+        config.save_last_results([], "sandbox")
         if output == "json":
             output_json([])
         else:
             rprint("[dim]No sandboxes found.[/dim]")
         return
-    config.save_last_results(data)
+    config.save_last_results(data, "sandbox")
     if output == "json":
         output_json(data)
         return

@@ -635,7 +635,7 @@ def test_list_json_filters_sorts_limits_and_caches(monkeypatch):
             "team_id": "team-1",
         },
     )
-    save.assert_called_once_with([data[1]])
+    save.assert_called_once_with([data[1]], "mcp")
 
 
 def test_list_table_empty_and_interactive(monkeypatch, capsys):
@@ -692,7 +692,7 @@ def test_my_mcp_outputs_reject_plain_and_empty_state(monkeypatch):
     assert "You have no MCP servers" in empty.output
     assert json.loads(as_json.output)[0]["id"] == "mcp-1"
     assert "My MCPs" in table.output
-    assert save.call_count == 2
+    assert save.call_count == 3
 
 
 def test_show_renders_validation_and_json(monkeypatch):
@@ -1084,12 +1084,12 @@ def test_mcp_co_author_commands_include_delete_boundary(monkeypatch):
 
     assert listed.exit_code == added.exit_code == removed.exit_code == 0
     assert "dev@example.com" in listed.output
-    get.assert_called_once_with("/mcps/mcp-1/co-authors")
+    get.assert_called_once_with("/api/v1/mcps/mcp-1/co-authors")
     post.assert_called_once_with(
-        "/mcps/mcp-1/co-authors",
+        "/api/v1/mcps/mcp-1/co-authors",
         json_data={"email": "dev@example.com"},
     )
-    delete.assert_called_once_with("/mcps/mcp-1/co-authors/user-1")
+    delete.assert_called_once_with("/api/v1/mcps/mcp-1/co-authors/user-1")
 
 
 def test_mcp_archive_is_the_destructive_listing_lifecycle(monkeypatch):

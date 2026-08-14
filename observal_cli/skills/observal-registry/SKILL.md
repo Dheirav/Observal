@@ -197,16 +197,16 @@ observal registry version list mcp NAME --output json
 ## Procedure: Archive / Restore Component
 
 ```bash
-observal registry mcp archive NAME --yes
-observal registry skill archive NAME --yes
-observal registry hook archive NAME --yes
-observal registry prompt archive NAME --yes
-observal registry sandbox archive NAME --yes
+observal registry mcp archive NAME --yes --output json
+observal registry skill archive NAME --yes --output json
+observal registry hook archive NAME --yes --output json
+observal registry prompt archive NAME --yes --output json
+observal registry sandbox archive NAME --yes --output json
 
-observal registry mcp unarchive NAME --yes
-observal registry skill unarchive NAME --yes
-observal registry mcp transfer-owner NAME @username -y
-observal registry skill transfer-owner NAME @username -y
+observal registry mcp unarchive NAME --yes --output json
+observal registry skill unarchive NAME --yes --output json
+observal registry mcp transfer-owner NAME @username -y --output json
+observal registry skill transfer-owner NAME @username -y --output json
 ```
 
 ---
@@ -217,14 +217,14 @@ Co-authors have equal access to the component owner (edit, publish, manage co-au
 
 ```bash
 # List
-observal registry mcp co-authors list <id-or-name>
-observal registry skill co-authors list <id-or-name>
+observal registry mcp co-authors list <id-or-name> --output json
+observal registry skill co-authors list <id-or-name> --output json
 
 # Add
-observal registry skill co-authors add <id-or-name> user@example.com
+observal registry skill co-authors add <id-or-name> user@example.com --output json
 
 # Remove
-observal registry hook co-authors remove <id-or-name> <user-uuid>
+observal registry hook co-authors remove <id-or-name> <user-uuid> --output json
 ```
 
 
