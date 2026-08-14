@@ -166,7 +166,7 @@ OBSERVAL_CURRENT_PASSWORD_FILE=/path/to/current OBSERVAL_NEW_PASSWORD_FILE=/path
 observal auth set-username new-handle --output json
 ```
 
-Never place a password directly in command arguments. JSON credential login requires the server, email, and password environment or file input. Fresh-server JSON bootstrap also requires `--name`; human login prompts for it when omitted. JSON SSO emits an `authorization_required` event followed by an `authenticated` event. A username becomes the user's registry namespace and cannot be changed after the user owns an agent or component.
+Human login asks for the server URL; leave it blank for `http://localhost`. Never place a password directly in command arguments. JSON credential login requires the server, email, and password environment or file input. Fresh-server JSON bootstrap also requires `--name`; human login prompts for it when omitted. JSON SSO emits an `authorization_required` event followed by an `authenticated` event. A username becomes the user's registry namespace and cannot be changed after the user owns an agent or component.
 
 ---
 

@@ -403,6 +403,59 @@ def test_login_handles_admin_initialization_failures(
     assert exc_info.value.category is category
 
 
+def test_human_login_prompts_with_blank_localhost_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    stale = "http://localhost:8000"
+    selected = "http://localhost"
+    monkeypatch.setattr(auth.config, "load", lambda: {"server_url": stale})
+    monkeypatch.setattr("observal_cli.lockfile.migrate_lockfile_v1", MagicMock())
+    monkeypatch.setattr(
+        auth.httpx,
+        "get",
+        MagicMock(side_effect=[_response(200, {"initialized": True}), _response(200, {})]),
+    )
+    monkeypatch.setattr(auth, "_ensure_cli_matches_server", MagicMock())
+    prompt = MagicMock(return_value="")
+    monkeypatch.setattr(auth, "text_input", prompt)
+    password_login = MagicMock()
+    monkeypatch.setattr(auth, "_do_password_login", password_login)
+
+    auth.login(None, "ada", VALID_PASSWORD, None, False, False)
+
+    prompt.assert_called_once_with("Server URL (leave blank for http://localhost)", default="")
+    password_login.assert_called_once_with(
+        selected, "ada", VALID_PASSWORD, output=auth.OutputMode.table, run_setup=True
+    )
+
+
+def test_json_login_recovers_stale_local_port_without_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    stale = "http://localhost:8000"
+    monkeypatch.setattr(auth.config, "load", lambda: {"server_url": stale})
+    monkeypatch.setattr("observal_cli.lockfile.migrate_lockfile_v1", MagicMock())
+    monkeypatch.setattr(
+        auth.httpx,
+        "get",
+        MagicMock(
+            side_effect=[
+                httpx.ConnectError("stale port"),
+                _response(200, {"initialized": True}),
+                _response(200, {}),
+            ]
+        ),
+    )
+    monkeypatch.setattr(auth, "_ensure_cli_matches_server", MagicMock())
+    prompt = MagicMock(side_effect=AssertionError("JSON mode must not prompt"))
+    monkeypatch.setattr(auth, "text_input", prompt)
+    password_login = MagicMock()
+    monkeypatch.setattr(auth, "_do_password_login", password_login)
+
+    auth.login(None, "ada", VALID_PASSWORD, None, False, False, output=auth.OutputMode.json)
+
+    prompt.assert_not_called()
+    password_login.assert_called_once_with(
+        "http://localhost", "ada", VALID_PASSWORD, output=auth.OutputMode.json, run_setup=False
+    )
+
+
 def test_login_with_credentials_routes_to_password_authentication(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
