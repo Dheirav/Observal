@@ -12,6 +12,7 @@ Every command available in the installed CLI. This block is generated from the T
 **Root commands**
 
 - `observal outdated`: Show installed agents and standalone components with their registry status.
+- `observal reconcile`: Backfill local session records missed by automatic hook delivery
 - `observal scan`: Show a read-only inventory of your local harness setup.
 
 **`observal admin`**: Core administration and submission review commands
@@ -118,10 +119,6 @@ Every command available in the installed CLI. This block is generated from the T
 - `observal ops rate-update`: Update your existing review for an item.
 - `observal ops top`: Show top MCP servers or agents by usage.
 - `observal ops traces`: List recent traces (sessions).
-
-**`observal reconcile`**: Push local session transcripts to the server
-
-- (no subcommands)
 
 **`observal registry`**: Component registry (MCPs, skills, hooks, prompts, sandboxes)
 

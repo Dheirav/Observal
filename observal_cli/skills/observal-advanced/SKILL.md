@@ -13,19 +13,22 @@ owner: observal
 
 ## Procedure: Reconcile Sessions
 
-Push local session JSONL to server for full trace context. Normally automatic via hooks.
+Backfill local session records missed by the normally automatic hook or extension pipeline. Do not run it routinely when telemetry is healthy.
 
 Manual recovery for all detected harnesses:
 
 ```bash
-observal reconcile
+observal reconcile --output json
 ```
 
 Target one harness or shorten the discovery window when needed:
 
 ```bash
-observal reconcile --harness claude-code --since 24
+observal reconcile --harness claude-code --since 24 --output json
+observal reconcile --harness claude-code --since 24 --dry-run --output json
 ```
+
+Dry run does not drain the outbox, contact ingestion, or change cursors.
 
 ---
 
