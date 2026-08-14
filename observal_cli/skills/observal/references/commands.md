@@ -77,11 +77,11 @@ Every command available in the installed CLI. This block is generated from the T
 
 **`observal config`**: CLI configuration
 
-- `observal config alias`: Set or remove an alias for an MCP/agent ID.
-- `observal config aliases`: List all aliases.
-- `observal config path`: Show config file path.
-- `observal config set`: Set a CLI config value.
-- `observal config show`: Show current CLI configuration.
+- `observal config alias`: Set or remove a local registry reference alias.
+- `observal config aliases`: List all local aliases.
+- `observal config path`: Show the config file path.
+- `observal config set`: Set a validated user-managed CLI setting.
+- `observal config show`: Show effective CLI configuration without exposing credentials.
 
 **`observal doctor`**: Diagnose and patch harness settings for Observal telemetry
 

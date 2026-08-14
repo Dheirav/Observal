@@ -543,6 +543,54 @@ class TestAuthJsonOutputs:
         save.assert_called_once_with({"username": "alice"})
 
 
+class TestConfigContracts:
+    def test_show_json_uses_root_contract_without_secrets(self) -> None:
+        stored = {
+            "server_url": "https://registry.example.test",
+            "timeout": 30,
+            "access_token": "private-access-token",
+            "refresh_token": "private-refresh-token",
+        }
+        with patch("observal_cli.cmd_auth.config.load", return_value=stored):
+            result = runner.invoke(app, ["config", "show", "--output", "json"])
+
+        assert result.exit_code == 0, result.output
+        assert result.stderr == ""
+        payload = json.loads(result.stdout)
+        assert payload["access_token_configured"] is True
+        assert payload["refresh_token_configured"] is True
+        assert "private-access-token" not in result.stdout
+        assert "private-refresh-token" not in result.stdout
+
+    def test_set_invalid_value_uses_json_error_contract(self) -> None:
+        result = runner.invoke(app, ["config", "set", "output", "json", "--output", "json"])
+
+        assert result.exit_code == 7
+        assert result.stdout == ""
+        error = json.loads(result.stderr)["error"]
+        assert error["category"] == "validation"
+        assert error["resource"] == "output"
+
+    def test_set_permission_failure_uses_permission_exit(self) -> None:
+        denied = PermissionError(13, "permission denied", "/root/.observal/config.json")
+        with (
+            patch("observal_cli.cmd_auth.config.save", side_effect=denied),
+            patch("observal_cli.cmd_auth.config.load", return_value={"timeout": 30}),
+        ):
+            result = runner.invoke(app, ["config", "set", "timeout", "30", "--output", "json"])
+
+        assert result.exit_code == 4
+        assert result.stdout == ""
+        assert json.loads(result.stderr)["error"]["category"] == "permission"
+
+    def test_aliases_empty_json_keeps_stable_shape(self) -> None:
+        with patch("observal_cli.cmd_auth.config.load_aliases", return_value={}):
+            result = runner.invoke(app, ["config", "aliases", "--output", "json"])
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout) == {"items": [], "total": 0}
+
+
 # ── post-login harness detection ───────────────────────────────
 
 
