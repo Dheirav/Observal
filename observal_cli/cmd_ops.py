@@ -9,12 +9,15 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import nullcontext
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 from urllib.parse import quote
+from uuid import UUID
 
 import typer
-from loguru import logger as optic
 from rich import print as rprint
 from rich.table import Table
 from typer.models import OptionInfo
@@ -41,17 +44,22 @@ from observal_cli.render import (
 
 _RANKING_TYPES = ("mcp", "agent")
 _FEEDBACK_TYPES = ("mcp", "agent", "skill", "hook", "prompt", "sandbox")
+_ADMIN_ROLES = ("super_admin", "admin", "reviewer", "user")
+_REVIEW_TYPES = ("mcp", "skill", "hook", "prompt", "sandbox")
+_REVIEW_TABS = ("agents", "components")
+_SECURITY_SEVERITIES = ("info", "warning", "critical")
+_AUDIT_SOURCES = ("server", "cli")
 
 
-def _ops_value(value):
+def _command_value(value):
     return value.default if isinstance(value, OptionInfo) else value
 
 
-def _ops_progress(output: OutputMode | str, message: str | None = None):
-    return nullcontext() if _ops_value(output) == "json" else spinner(message)
+def _command_progress(output: OutputMode | str, message: str | None = None):
+    return nullcontext() if _command_value(output) == "json" else spinner(message)
 
 
-def _ops_choice(value: str, allowed: tuple[str, ...], label: str, operation: str) -> str:
+def _command_choice(value: str, allowed: tuple[str, ...], label: str, operation: str) -> str:
     normalized = value.strip().lower()
     if normalized not in allowed:
         fail(
@@ -62,6 +70,56 @@ def _ops_choice(value: str, allowed: tuple[str, ...], label: str, operation: str
             remediation=f"Choose from: {', '.join(allowed)}.",
         )
     return normalized
+
+
+def _admin_user(email: str, output: OutputMode | str, operation: str) -> dict:
+    normalized = email.strip().lower()
+    with _command_progress(output, "Looking up user..."):
+        users = client.get("/api/v1/admin/users")
+    match = next((user for user in users if str(user.get("email", "")).lower() == normalized), None)
+    if match is None:
+        fail(
+            ErrorCategory.NOT_FOUND,
+            f"User not found: {email}.",
+            operation=operation,
+            resource="user",
+            remediation="Run `observal admin users --output json` and retry with an existing email.",
+        )
+    return match
+
+
+def _uuid(value: str, label: str, operation: str) -> str:
+    try:
+        return str(UUID(value))
+    except ValueError:
+        fail(
+            ErrorCategory.VALIDATION,
+            f"Invalid {label}: {value}.",
+            operation=operation,
+            resource=label,
+            remediation="Use a complete UUID.",
+        )
+
+
+def _atomic_write(path: Path, content: str, operation: str) -> None:
+    temporary: Path | None = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", delete=False) as file:
+            temporary = Path(file.name)
+            file.write(content)
+        temporary.replace(path)
+    except OSError as error:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+        fail(
+            ErrorCategory.UNAVAILABLE,
+            f"Could not write audit export: {path}.",
+            operation=operation,
+            resource=str(path),
+            remediation="Check the destination path and permissions, then retry.",
+            detail=repr(error),
+        )
 
 
 ops_app = typer.Typer(
@@ -81,7 +139,7 @@ ops_app = typer.Typer(
 
 review_app = typer.Typer(
     help=(
-        "Admin review commands\n\n"
+        "Submission review commands\n\n"
         "Examples:\n"
         "  observal admin review list\n"
         "  observal admin review show 1\n"
@@ -92,18 +150,16 @@ review_app = typer.Typer(
 
 @review_app.command(name="list")
 def review_list(
-    type_filter: str = typer.Option(None, "--type", "-t", help="Filter by type (mcp, skill, hook, prompt, sandbox)"),
-    tab: str = typer.Option(None, "--tab", help="Filter tab (agents, components)"),
+    type_filter: str | None = typer.Option(
+        None, "--type", "-t", help="Filter by component type (mcp, skill, hook, prompt, sandbox)"
+    ),
+    tab: str | None = typer.Option(None, "--tab", help="Filter tab (agents, components)"),
     output: OutputMode = typer.Option("table", "--output", "-o"),
+    team_id: str | None = typer.Option(None, "--team-id", help="Filter by teamspace UUID"),
 ):
-    """List pending submissions awaiting admin review.
+    """List pending submissions awaiting review.
 
-    Shows all components and agents that have been submitted but not yet
-    approved or rejected. Use --type to filter by component type, or --tab
-    to separate agents from components.
-
-    Row numbers from the output can be used as shorthand in other review
-    commands (show, approve, reject).
+    Row numbers from this output can be used by show, approve, and reject.
 
     Examples:
 
@@ -113,16 +169,29 @@ def review_list(
 
         observal admin review list --tab agents --output json
     """
-    optic.trace("type_filter={}", type_filter)
+    team_id = _command_value(team_id)
     params = {}
+    if tab:
+        tab = _command_choice(tab, _REVIEW_TABS, "review tab", "List pending reviews")
     if type_filter:
+        type_filter = _command_choice(type_filter, _REVIEW_TYPES, "review type", "List pending reviews")
+        if tab == "agents":
+            fail(
+                ErrorCategory.VALIDATION,
+                "A component type cannot be combined with the agents tab.",
+                operation="List pending reviews",
+                resource="review filters",
+                remediation="Remove --type or use --tab components.",
+            )
         params["type"] = type_filter
+        tab = tab or "components"
     if tab:
         params["tab"] = tab
-    with spinner("Fetching reviews..."):
+    if team_id:
+        params["team_id"] = _uuid(team_id, "teamspace ID", "List pending reviews")
+    with _command_progress(output, "Fetching reviews..."):
         data = client.get("/api/v1/review", params=params or None)
-    if data:
-        config.save_last_results(data)
+    config.save_last_results(data, "review")
     if output == "json":
         output_json(data)
         return
@@ -140,94 +209,96 @@ def review_list(
     for i, item in enumerate(data, 1):
         table.add_row(
             str(i),
-            item.get("type", item.get("listing_type", "")),
-            item.get("name", ""),
-            item.get("version", ""),
-            item.get("submitted_by", ""),
+            esc(item.get("type", item.get("listing_type", ""))),
+            esc(item.get("name", "")),
+            esc(item.get("version", "")),
+            esc(item.get("submitted_by", "")),
             relative_time(item.get("created_at") or item.get("submitted_at")),
-            str(item["id"])[:12],
+            esc(str(item.get("id", ""))[:12]),
         )
     console.print(table)
 
 
 @review_app.command(name="show")
 def review_show(
-    review_id: str = typer.Argument(..., help="Name, row #, @alias, or UUID"),
+    review_id: str = typer.Argument(..., help="Name, row number, @alias, or UUID"),
     output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
-    """Show review details for a component or agent.
-
-    Displays metadata, validation results, and status for a pending
-    submission. Accepts a row number from `review list`, a name,
-    an @alias, or a UUID.
+    """Show review details for a component or Agent.
 
     Examples:
 
         observal admin review show 1
 
-        observal admin review show my-mcp-server
-
-        observal admin review show @my-alias --output json
+        observal admin review show my-mcp-server --output json
     """
-    resolved = config.resolve_alias(review_id)
-    with spinner():
-        item = client.get(f"/api/v1/review/{resolved}")
+    resolved = config.resolve_alias(review_id, expected_type="review")
+    with _command_progress(output):
+        item = client.get(f"/api/v1/review/{quote(resolved, safe='')}")
     if output == "json":
         output_json(item)
         return
     fields = [
-        ("Type", item.get("type", "N/A")),
+        ("Type", esc(item.get("type", "N/A"))),
         ("Status", status_badge(item.get("status", ""))),
-        ("Version", item.get("version", "N/A")),
-        ("Owner", item.get("owner", "N/A")),
-        ("Submitted By", item.get("submitted_by", "N/A")),
+        ("Version", esc(item.get("version", "N/A"))),
+        ("Owner", esc(item.get("owner", "N/A"))),
+        ("Submitted By", esc(item.get("submitted_by", "N/A"))),
         ("Created", relative_time(item.get("created_at"))),
-        ("Git URL", item.get("git_url", "N/A")),
-        ("Description", item.get("description", "") or "[dim]none[/dim]"),
-        ("ID", f"[dim]{item['id']}[/dim]"),
+        ("Git URL", esc(item.get("git_url", "N/A"))),
+        ("Description", esc(item.get("description")) if item.get("description") else "[dim]none[/dim]"),
+        ("ID", f"[dim]{esc(item.get('id', ''))}[/dim]"),
     ]
     if item.get("rejection_reason"):
-        fields.append(("Rejection Reason", f"[red]{item['rejection_reason']}[/red]"))
+        fields.append(("Rejection Reason", f"[red]{esc(item['rejection_reason'])}[/red]"))
     if item.get("mcp_validated") is not None:
         badge = "[green]✓ Validated[/green]" if item["mcp_validated"] else "[red]✗ Not validated[/red]"
         fields.append(("MCP Validation", badge))
-    if item.get("validation_results"):
-        for vr in item["validation_results"]:
-            passed = "[green]pass[/green]" if vr.get("passed") else "[red]fail[/red]"
-            fields.append((f"  {vr.get('stage', '?')}", passed))
-    console.print(kv_panel(item.get("name", "Review"), fields))
+    for validation in item.get("validation_results") or []:
+        passed = "[green]pass[/green]" if validation.get("passed") else "[red]fail[/red]"
+        fields.append((f"  {esc(validation.get('stage', '?'))}", passed))
+    console.print(kv_panel(esc(item.get("name", "Review")), fields))
+
+
+def _review_action_path(review_id: str, action: str, agent: bool, bundle: bool) -> str:
+    if agent and bundle:
+        fail(
+            ErrorCategory.VALIDATION,
+            "A review cannot be both an Agent and a bundle.",
+            operation=f"{action.title()} review",
+            resource="review type",
+            remediation="Choose only --agent or --bundle.",
+        )
+    resolved = quote(config.resolve_alias(review_id, expected_type="review"), safe="")
+    if agent:
+        return f"/api/v1/review/agents/{resolved}/{action}"
+    if bundle:
+        return f"/api/v1/review/bundles/{resolved}/{action}"
+    return f"/api/v1/review/{resolved}/{action}"
 
 
 @review_app.command(name="approve")
 def review_approve(
-    review_id: str = typer.Argument(..., help="Name, row #, @alias, or UUID"),
-    agent: bool = typer.Option(False, "--agent", "-a", help="Approve an agent (not a component)"),
+    review_id: str = typer.Argument(..., help="Name, row number, @alias, or UUID"),
+    agent: bool = typer.Option(False, "--agent", "-a", help="Approve an Agent"),
     bundle: bool = typer.Option(False, "--bundle", "-b", help="Approve an entire bundle atomically"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
-    """Approve a submission (component, agent, or bundle).
-
-    After `observal admin review list`, use a row number (e.g. 1),
-    the component/agent name, or a UUID prefix. Approved items become
-    visible in the public registry.
+    """Approve a component, Agent, or bundle submission.
 
     Examples:
 
         observal admin review approve 1
 
-        observal admin review approve my-mcp-server
-
-        observal admin review approve my-agent --agent
+        observal admin review approve my-agent --agent --output json
     """
-    resolved = config.resolve_alias(review_id)
-    if agent:
-        path = f"/api/v1/review/agents/{resolved}/approve"
-    elif bundle:
-        path = f"/api/v1/review/bundles/{resolved}/approve"
-    else:
-        path = f"/api/v1/review/{resolved}/approve"
-    with spinner("Approving..."):
+    path = _review_action_path(review_id, "approve", agent, bundle)
+    with _command_progress(output, "Approving..."):
         result = client.post(path)
-    name = result.get("name", review_id)
+    if output == "json":
+        output_json(result)
+        return
+    name = esc(result.get("name", review_id))
     if bundle:
         rprint(f"[green]✓ Bundle approved: {name} ({result.get('approved_count', '?')} components)[/green]")
     else:
@@ -236,38 +307,36 @@ def review_approve(
 
 @review_app.command(name="reject")
 def review_reject(
-    review_id: str = typer.Argument(..., help="Name, row #, @alias, or UUID"),
+    review_id: str = typer.Argument(..., help="Name, row number, @alias, or UUID"),
     reason: str = typer.Option(..., "--reason", "-r", help="Rejection reason"),
-    agent: bool = typer.Option(False, "--agent", "-a", help="Reject an agent (not a component)"),
+    agent: bool = typer.Option(False, "--agent", "-a", help="Reject an Agent"),
     bundle: bool = typer.Option(False, "--bundle", "-b", help="Reject an entire bundle atomically"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
-    """Reject a submission (component, agent, or bundle).
-
-    After `observal admin review list`, use a row number (e.g. 1),
-    the component/agent name, or a UUID prefix. A reason is required
-    so the submitter understands why.
+    """Reject a component, Agent, or bundle submission.
 
     Examples:
 
         observal admin review reject 2 --reason "Missing README"
 
-        observal admin review reject my-agent --agent -r "Unsafe prompt"
-
-        observal admin review reject my-bundle --bundle -r "License issue"
+        observal admin review reject my-agent --agent --reason "Unsafe prompt" --output json
     """
-    resolved = config.resolve_alias(review_id)
-    if not reason.strip():
-        rprint("[red]Rejection reason cannot be empty.[/red]")
-        raise typer.Exit(1)
-    if agent:
-        path = f"/api/v1/review/agents/{resolved}/reject"
-    elif bundle:
-        path = f"/api/v1/review/bundles/{resolved}/reject"
-    else:
-        path = f"/api/v1/review/{resolved}/reject"
-    with spinner("Rejecting..."):
+    reason = reason.strip()
+    if not reason or len(reason) > 5000:
+        fail(
+            ErrorCategory.VALIDATION,
+            "Rejection reason must contain 1 to 5,000 characters.",
+            operation="Reject review",
+            resource="rejection reason",
+            remediation="Provide a concise, non-empty reason.",
+        )
+    path = _review_action_path(review_id, "reject", agent, bundle)
+    with _command_progress(output, "Rejecting..."):
         result = client.post(path, {"reason": reason})
-    name = result.get("name", review_id)
+    if output == "json":
+        output_json(result)
+        return
+    name = esc(result.get("name", review_id))
     if bundle:
         rprint(f"[yellow]✗ Bundle rejected: {name} ({result.get('rejected_count', '?')} components)[/yellow]")
     else:
@@ -297,7 +366,7 @@ def telemetry_status(
 
         observal ops telemetry status
     """
-    with _ops_progress(output, "Checking telemetry..."):
+    with _command_progress(output, "Checking telemetry..."):
         server = client.get("/api/v1/telemetry/status")
 
     from observal_cli.telemetry_buffer import stats as buffer_stats
@@ -352,9 +421,9 @@ def _top(
 
 
 def _top_impl(item_type, output):
-    item_type = _ops_choice(item_type, _RANKING_TYPES, "ranking type", "List top registry items")
+    item_type = _command_choice(item_type, _RANKING_TYPES, "ranking type", "List top registry items")
     endpoint = "/api/v1/overview/top-mcps" if item_type == "mcp" else "/api/v1/overview/top-agents"
-    with _ops_progress(output):
+    with _command_progress(output):
         data = client.get(endpoint)
     if output == "json":
         output_json(data)
@@ -404,7 +473,7 @@ def _rate(
 
 
 def _rate_impl(listing_id, stars, listing_type, comment, anonymous=False, output="table"):
-    listing_type = _ops_choice(listing_type, _FEEDBACK_TYPES, "feedback type", "Rate registry item")
+    listing_type = _command_choice(listing_type, _FEEDBACK_TYPES, "feedback type", "Rate registry item")
     if comment is not None and len(comment) > 5000:
         fail(
             ErrorCategory.VALIDATION,
@@ -414,7 +483,7 @@ def _rate_impl(listing_id, stars, listing_type, comment, anonymous=False, output
             remediation="Shorten the comment and retry.",
         )
     resolved = _resolve_listing_id(listing_id, listing_type)
-    with _ops_progress(output, "Submitting rating..."):
+    with _command_progress(output, "Submitting rating..."):
         result = client.post(
             "/api/v1/feedback",
             {
@@ -450,7 +519,7 @@ def _rate_update(
 
         observal ops rate-update my-mcp --comment "Updated opinion" --anonymous
     """
-    listing_type = _ops_choice(listing_type, _FEEDBACK_TYPES, "feedback type", "Update registry feedback")
+    listing_type = _command_choice(listing_type, _FEEDBACK_TYPES, "feedback type", "Update registry feedback")
     body = {}
     if stars is not None:
         body["rating"] = stars
@@ -475,9 +544,9 @@ def _rate_update(
             remediation="Shorten the comment and retry.",
         )
     resolved = _resolve_listing_id(listing_id, listing_type)
-    with _ops_progress(output, "Fetching your review..."):
+    with _command_progress(output, "Fetching your review..."):
         review = client.get(f"/api/v1/feedback/mine/{listing_type}/{resolved}")
-    with _ops_progress(output, "Updating review..."):
+    with _command_progress(output, "Updating review..."):
         result = client.put(f"/api/v1/feedback/{review['id']}", body)
     if output == "json":
         output_json(result)
@@ -502,9 +571,9 @@ def _rate_delete(
 
         observal ops rate-delete my-agent --type agent
     """
-    listing_type = _ops_choice(listing_type, _FEEDBACK_TYPES, "feedback type", "Delete registry feedback")
-    yes = _ops_value(yes)
-    output = _ops_value(output)
+    listing_type = _command_choice(listing_type, _FEEDBACK_TYPES, "feedback type", "Delete registry feedback")
+    yes = _command_value(yes)
+    output = _command_value(output)
     if output == "json" and not yes:
         fail(
             ErrorCategory.VALIDATION,
@@ -514,11 +583,11 @@ def _rate_delete(
             remediation="Add --yes to confirm deletion.",
         )
     resolved = _resolve_listing_id(listing_id, listing_type)
-    with _ops_progress(output, "Fetching your review..."):
+    with _command_progress(output, "Fetching your review..."):
         review = client.get(f"/api/v1/feedback/mine/{listing_type}/{resolved}")
     if not yes and not typer.confirm("Delete your review permanently?"):
         raise typer.Abort()
-    with _ops_progress(output, "Deleting review..."):
+    with _command_progress(output, "Deleting review..."):
         result = client.delete(f"/api/v1/feedback/{review['id']}")
     if output == "json":
         output_json(result)
@@ -568,9 +637,9 @@ def _feedback(
 
 
 def _feedback_impl(listing_id, listing_type, output):
-    listing_type = _ops_choice(listing_type, _FEEDBACK_TYPES, "feedback type", "Show registry feedback")
+    listing_type = _command_choice(listing_type, _FEEDBACK_TYPES, "feedback type", "Show registry feedback")
     resolved = _resolve_listing_id(listing_id, listing_type)
-    with _ops_progress(output):
+    with _command_progress(output):
         data = client.get(f"/api/v1/feedback/{listing_type}/{resolved}")
         summary = client.get(f"/api/v1/feedback/summary/{resolved}")
 
@@ -596,7 +665,7 @@ def _feedback_impl(listing_id, listing_type, output):
 
 admin_app = typer.Typer(
     help=(
-        "Admin commands\n\n"
+        "Core administration and submission review commands\n\n"
         "Examples:\n"
         "  observal admin diagnostics\n"
         "  observal admin users\n"
@@ -617,7 +686,7 @@ def admin_settings(output: OutputMode = typer.Option("table", "--output", "-o"))
 
         observal admin settings --output json
     """
-    with spinner():
+    with _command_progress(output):
         data = client.get("/api/v1/admin/settings")
     if output == "json":
         output_json(data)
@@ -629,7 +698,7 @@ def admin_settings(output: OutputMode = typer.Option("table", "--output", "-o"))
     table.add_column("Key", style="bold")
     table.add_column("Value")
     for item in data:
-        table.add_row(item["key"], item["value"])
+        table.add_row(esc(item.get("key", "")), esc(item.get("value", "")))
     console.print(table)
 
 
@@ -637,6 +706,7 @@ def admin_settings(output: OutputMode = typer.Option("table", "--output", "-o"))
 def admin_set(
     key: str = typer.Argument(...),
     value: str = typer.Argument(...),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
     """Set a server setting.
 
@@ -649,9 +719,12 @@ def admin_set(
 
         observal admin set telemetry_retention_days 90
     """
-    with spinner():
-        client.put(f"/api/v1/admin/settings/{key}", {"value": value})
-    rprint(f"[green]✓ {key} = {value}[/green]")
+    with _command_progress(output):
+        result = client.put(f"/api/v1/admin/settings/{quote(key, safe='')}", {"value": value})
+    if output == "json":
+        output_json(result)
+        return
+    rprint(f"[green]✓ Updated {esc(result.get('key', key))}[/green]")
 
 
 @admin_app.command(name="users")
@@ -667,7 +740,7 @@ def admin_users(output: OutputMode = typer.Option("table", "--output", "-o")):
 
         observal admin users --output json
     """
-    with spinner():
+    with _command_progress(output):
         data = client.get("/api/v1/admin/users")
     if output == "json":
         output_json(data)
@@ -678,10 +751,16 @@ def admin_users(output: OutputMode = typer.Option("table", "--output", "-o")):
     table.add_column("Name", style="bold")
     table.add_column("Role")
     table.add_column("ID", style="dim", max_width=12)
-    for i, u in enumerate(data, 1):
-        role_color = "green" if u["role"] == "admin" else "cyan" if u["role"] == "developer" else "white"
+    role_colors = {"super_admin": "magenta", "admin": "green", "reviewer": "cyan", "user": "white"}
+    for i, user in enumerate(data, 1):
+        role = str(user.get("role", ""))
+        color = role_colors.get(role, "white")
         table.add_row(
-            str(i), u["email"], u["name"], f"[{role_color}]{u['role']}[/{role_color}]", str(u["id"])[:8] + "…"
+            str(i),
+            esc(user.get("email", "")),
+            esc(user.get("name", "")),
+            f"[{color}]{esc(role)}[/{color}]",
+            esc(str(user.get("id", ""))[:8] + "…"),
         )
     console.print(table)
 
@@ -691,7 +770,7 @@ def admin_create_user(
     email: str = typer.Argument(..., help="Email address for the new user"),
     name: str = typer.Argument(..., help="Full name of the user"),
     username: str = typer.Option(None, "--username", "-u", help="Username (optional)"),
-    role: str = typer.Option("reviewer", "--role", "-r", help="Role: admin, reviewer, or user"),
+    role: str = typer.Option("reviewer", "--role", "-r", help="Role: super_admin, admin, reviewer, or user"),
     password: str = typer.Option(None, "--password", "-p", help="Password (auto-generated if omitted)"),
     output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
@@ -707,13 +786,14 @@ def admin_create_user(
 
         observal admin create-user carol@example.com "Carol Lee" -u carol -r reviewer -p s3cret
     """
-    body: dict = {"email": email, "name": name, "role": role}
+    role = _command_choice(role, _ADMIN_ROLES, "user role", "Create administrator-managed user")
+    body: dict = {"email": email.strip().lower(), "name": name.strip(), "role": role}
     if username:
         body["username"] = username
     if password:
         body["password"] = password
 
-    with spinner("Creating user..."):
+    with _command_progress(output, "Creating user..."):
         data = client.post("/api/v1/admin/users", body)
 
     if output == "json":
@@ -721,13 +801,13 @@ def admin_create_user(
         return
 
     rprint("\n[green]User created successfully.[/green]\n")
-    rprint(f"  [bold]Name:[/bold]     {data['name']}")
-    rprint(f"  [bold]Email:[/bold]    {data['email']}")
+    rprint(f"  [bold]Name:[/bold]     {esc(data.get('name', ''))}")
+    rprint(f"  [bold]Email:[/bold]    {esc(data.get('email', ''))}")
     if data.get("username"):
-        rprint(f"  [bold]Username:[/bold] {data['username']}")
-    rprint(f"  [bold]Role:[/bold]     {data['role']}")
-    rprint(f"  [bold]ID:[/bold]       {data['id']}")
-    rprint(f"\n[yellow]Password:[/yellow] {data['password']}")
+        rprint(f"  [bold]Username:[/bold] {esc(data['username'])}")
+    rprint(f"  [bold]Role:[/bold]     {esc(data.get('role', ''))}")
+    rprint(f"  [bold]ID:[/bold]       {esc(data.get('id', ''))}")
+    rprint(f"\n[yellow]Password:[/yellow] {esc(data.get('password', ''))}")
     rprint("[dim]Save this, it will not be shown again.[/dim]")
 
 
@@ -735,76 +815,95 @@ def admin_create_user(
 def admin_reset_password(
     email: str = typer.Argument(..., help="Email of the user to reset"),
     generate: bool = typer.Option(False, "--generate", "-g", help="Generate a secure random password"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
     """Reset a user's password. Requires admin privileges.
 
-    Provide the user's email and either enter a new password interactively
-    or use --generate to create a secure random password.
+    JSON mode requires --generate and never prompts.
 
     Examples:
 
         observal admin reset-password alice@example.com
 
-        observal admin reset-password alice@example.com --generate
+        observal admin reset-password alice@example.com --generate --output json
     """
-    # Look up user ID by email
-    with spinner("Looking up user..."):
-        users = client.get("/api/v1/admin/users")
-    match = next((u for u in users if u["email"] == email.strip().lower()), None)
-    if not match:
-        rprint(f"[red]User not found:[/red] {email}")
-        raise typer.Exit(1)
-
+    output = _command_value(output)
+    if output == "json" and not generate:
+        fail(
+            ErrorCategory.VALIDATION,
+            "JSON mode cannot prompt for a new password.",
+            operation="Reset user password",
+            resource="new password",
+            remediation="Add --generate.",
+        )
+    match = _admin_user(email, output, "Reset user password")
     if generate:
         body: dict = {"generate": True}
     else:
         new_password = password_input("New password")
-        confirm = password_input("Confirm password")
-        if new_password != confirm:
-            rprint("[red]Passwords do not match.[/red]")
-            raise typer.Exit(1)
+        confirmation = password_input("Confirm password")
+        if new_password != confirmation:
+            fail(
+                ErrorCategory.VALIDATION,
+                "Passwords do not match.",
+                operation="Reset user password",
+                resource="new password",
+                remediation="Enter the same password twice.",
+            )
         body = {"new_password": new_password}
 
-    with spinner("Resetting password..."):
+    with _command_progress(output, "Resetting password..."):
         result = client.put(f"/api/v1/admin/users/{match['id']}/password", body)
-
-    rprint(f"[green]{result['message']}[/green]")
+    if output == "json":
+        output_json(result)
+        return
+    rprint(f"[green]{esc(result.get('message', 'Password reset.'))}[/green]")
     if "generated_password" in result:
-        rprint(f"\n[yellow]Generated password:[/yellow] {result['generated_password']}")
+        rprint(f"\n[yellow]Generated password:[/yellow] {esc(result['generated_password'])}")
         rprint("[dim]Save this, it will not be shown again.[/dim]")
 
 
 @admin_app.command(name="delete-user")
 def admin_delete_user(
     email: str = typer.Argument(..., help="Email of the user to delete"),
-    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt"),
+    force: bool = typer.Option(False, "--force", "--yes", "-f", help="Skip confirmation prompt"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
     """Delete a user account. Requires admin privileges.
 
-    This permanently removes the user and all associated data (API keys, etc.).
+    JSON mode requires --force and never prompts.
 
     Examples:
 
         observal admin delete-user alice@example.com
 
-        observal admin delete-user alice@example.com --force
+        observal admin delete-user alice@example.com --force --output json
     """
-    # Look up user ID by email
-    with spinner("Looking up user..."):
-        users = client.get("/api/v1/admin/users")
-    match = next((u for u in users if u["email"] == email.strip().lower()), None)
-    if not match:
-        rprint(f"[red]User not found:[/red] {email}")
-        raise typer.Exit(1)
-
-    rprint(f"\n  [bold]{match['name']}[/bold] ({match['email']}), {match['role']}")
+    force = _command_value(force)
+    output = _command_value(output)
+    if output == "json" and not force:
+        fail(
+            ErrorCategory.VALIDATION,
+            "JSON mode cannot prompt before deleting a user.",
+            operation="Delete administrator-managed user",
+            resource="user",
+            remediation="Add --force to confirm deletion.",
+        )
+    match = _admin_user(email, output, "Delete administrator-managed user")
     if not force:
+        rprint(
+            f"\n  [bold]{esc(match.get('name', ''))}[/bold] "
+            f"({esc(match.get('email', ''))}), {esc(match.get('role', ''))}"
+        )
         typer.confirm("\nPermanently delete this user?", abort=True)
 
-    with spinner("Deleting user..."):
+    with _command_progress(output, "Deleting user..."):
         client.delete(f"/api/v1/admin/users/{match['id']}")
-
-    rprint(f"[green]Deleted user {match['email']}[/green]")
+    result = {"deleted": True, "id": match.get("id"), "email": match.get("email")}
+    if output == "json":
+        output_json(result)
+        return
+    rprint(f"[green]Deleted user {esc(match.get('email', ''))}[/green]")
 
 
 # ── Diagnostics ─────────────────────────────────────────
@@ -824,7 +923,7 @@ def admin_diagnostics(output: OutputMode = typer.Option("table", "--output", "-o
 
         observal admin diagnostics --output json
     """
-    with spinner():
+    with _command_progress(output):
         data = client.get("/api/v1/admin/diagnostics")
     if output == "json":
         output_json(data)
@@ -832,21 +931,21 @@ def admin_diagnostics(output: OutputMode = typer.Option("table", "--output", "-o
 
     overall = data.get("status", "unknown")
     color = {"ok": "green", "degraded": "yellow", "unhealthy": "red"}.get(overall, "white")
-    rprint(f"\n  Overall: [{color}]{overall}[/{color}]")
+    rprint(f"\n  Overall: [{color}]{esc(overall)}[/{color}]")
 
     checks = data.get("checks", {})
 
     db = checks.get("database", {})
     if db:
         db_color = "green" if db.get("status") == "ok" else "red"
-        rprint(f"\n  Database: [{db_color}]{db.get('status', 'unknown')}[/{db_color}]")
+        rprint(f"\n  Database: [{db_color}]{esc(db.get('status', 'unknown'))}[/{db_color}]")
         rprint(f"    Users: {db.get('users', '?')}")
 
     jwt_info = checks.get("jwt_keys", {})
     if jwt_info:
         jwt_color = "green" if jwt_info.get("status") == "ok" else "red"
-        rprint(f"\n  JWT:     [{jwt_color}]{jwt_info.get('status', 'unknown')}[/{jwt_color}]")
-        rprint(f"    Algorithm: {jwt_info.get('algorithm', '?')}")
+        rprint(f"\n  JWT:     [{jwt_color}]{esc(jwt_info.get('status', 'unknown'))}[/{jwt_color}]")
+        rprint(f"    Algorithm: {esc(jwt_info.get('algorithm', '?'))}")
 
     runtime_cfg = checks.get("runtime_config", {})
     if runtime_cfg:
@@ -854,7 +953,7 @@ def admin_diagnostics(output: OutputMode = typer.Option("table", "--output", "-o
         if issues:
             rprint("\n  [yellow]Configuration issues:[/yellow]")
             for issue in issues:
-                rprint(f"    - {issue}")
+                rprint(f"    • {esc(issue)}")
         else:
             rprint("\n  Configuration: [green]ok[/green]")
     rprint()
@@ -876,7 +975,7 @@ def admin_saml_config(output: OutputMode = typer.Option("table", "--output", "-o
 
         observal admin saml-config --output json
     """
-    with spinner():
+    with _command_progress(output):
         data = client.get("/api/v1/admin/saml-config")
     if output == "json":
         output_json(data)
@@ -887,10 +986,10 @@ def admin_saml_config(output: OutputMode = typer.Option("table", "--output", "-o
         return
 
     rprint("\n[bold]SAML SSO Configuration[/bold]\n")
-    for key in ("idp_entity_id", "idp_sso_url", "idp_slo_url", "sp_entity_id", "saml_active", "jit_provisioning"):
-        val = data.get(key)
-        if val is not None:
-            display = "[green]Yes[/green]" if val is True else "[red]No[/red]" if val is False else str(val)
+    for key in ("source", "idp_entity_id", "idp_sso_url", "idp_slo_url", "sp_entity_id", "active", "jit_provisioning"):
+        value = data.get(key)
+        if value is not None:
+            display = "[green]Yes[/green]" if value is True else "[red]No[/red]" if value is False else esc(value)
             rprint(f"  {key}: {display}")
     rprint()
 
@@ -904,6 +1003,7 @@ def admin_saml_config_set(
     sp_entity_id: str = typer.Option(None, "--sp-entity-id", help="SP Entity ID"),
     jit: bool = typer.Option(True, "--jit/--no-jit", help="Enable JIT user provisioning"),
     active: bool = typer.Option(True, "--active/--inactive", help="Enable SAML SSO"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
     """Create or update SAML SSO configuration.
 
@@ -913,32 +1013,50 @@ def admin_saml_config_set(
             --idp-sso-url https://idp.example.com/sso \\
             --idp-x509-cert "$(cat idp-cert.pem)"
     """
-    body: dict = {"saml_active": active, "jit_provisioning": jit}
-    if idp_entity_id:
-        body["idp_entity_id"] = idp_entity_id
-    if idp_sso_url:
-        body["idp_sso_url"] = idp_sso_url
+    required = {
+        "IdP entity ID": idp_entity_id,
+        "IdP SSO URL": idp_sso_url,
+        "IdP X.509 certificate": idp_x509_cert,
+    }
+    missing = [label for label, value in required.items() if not value or not value.strip()]
+    if missing:
+        fail(
+            ErrorCategory.VALIDATION,
+            f"Missing required SAML values: {', '.join(missing)}.",
+            operation="Update SAML configuration",
+            resource="SAML configuration",
+            remediation="Provide --idp-entity-id, --idp-sso-url, and --idp-x509-cert.",
+        )
+    body: dict = {
+        "idp_entity_id": idp_entity_id.strip(),
+        "idp_sso_url": idp_sso_url.strip(),
+        "idp_x509_cert": idp_x509_cert.strip(),
+        "active": active,
+        "jit_provisioning": jit,
+    }
     if idp_slo_url:
-        body["idp_slo_url"] = idp_slo_url
-    if idp_x509_cert:
-        body["idp_x509_cert"] = idp_x509_cert
+        body["idp_slo_url"] = idp_slo_url.strip()
     if sp_entity_id:
-        body["sp_entity_id"] = sp_entity_id
+        body["sp_entity_id"] = sp_entity_id.strip()
 
-    with spinner("Updating SAML config..."):
+    with _command_progress(output, "Updating SAML config..."):
         result = client.put("/api/v1/admin/saml-config", body)
+    if output == "json":
+        output_json(result)
+        return
     rprint("[green]SAML SSO configuration updated.[/green]")
     if result.get("sp_entity_id"):
-        rprint(f"  SP Entity ID:  {result['sp_entity_id']}")
+        rprint(f"  SP Entity ID:  {esc(result['sp_entity_id'])}")
     if result.get("sp_acs_url"):
-        rprint(f"  SP ACS URL:    {result['sp_acs_url']}")
+        rprint(f"  SP ACS URL:    {esc(result['sp_acs_url'])}")
     if result.get("sp_metadata_url"):
-        rprint(f"  SP Metadata:   {result['sp_metadata_url']}")
+        rprint(f"  SP Metadata:   {esc(result['sp_metadata_url'])}")
 
 
 @admin_app.command(name="saml-config-delete")
 def admin_saml_config_delete(
-    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt"),
+    force: bool = typer.Option(False, "--force", "--yes", "-f", help="Skip confirmation prompt"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
     """Delete SAML SSO configuration. Disables SAML SSO.
 
@@ -951,10 +1069,23 @@ def admin_saml_config_delete(
 
         observal admin saml-config-delete --force
     """
+    force = _command_value(force)
+    output = _command_value(output)
+    if output == "json" and not force:
+        fail(
+            ErrorCategory.VALIDATION,
+            "JSON mode cannot prompt before deleting SAML configuration.",
+            operation="Delete SAML configuration",
+            resource="SAML configuration",
+            remediation="Add --force to confirm deletion.",
+        )
     if not force:
         typer.confirm("This will disable SAML SSO for all users. Continue?", abort=True)
-    with spinner("Deleting SAML config..."):
-        client.delete("/api/v1/admin/saml-config")
+    with _command_progress(output, "Deleting SAML config..."):
+        result = client.delete("/api/v1/admin/saml-config")
+    if output == "json":
+        output_json(result)
+        return
     rprint("[green]SAML SSO configuration deleted.[/green]")
 
 
@@ -974,7 +1105,7 @@ def admin_scim_tokens(output: OutputMode = typer.Option("table", "--output", "-o
 
         observal admin scim-tokens --output json
     """
-    with spinner():
+    with _command_progress(output):
         data = client.get("/api/v1/admin/scim-tokens")
     if output == "json":
         output_json(data)
@@ -993,11 +1124,11 @@ def admin_scim_tokens(output: OutputMode = typer.Option("table", "--output", "-o
         active = "[green]Yes[/green]" if t.get("active") else "[red]No[/red]"
         created = t.get("created_at", "")[:10] if t.get("created_at") else "-"
         table.add_row(
-            str(t.get("id", ""))[:8] + "...",
-            t.get("token_prefix", ""),
-            t.get("description", "-"),
+            esc(str(t.get("id", ""))[:8] + "..."),
+            esc(t.get("token_prefix", "")),
+            esc(t.get("description", "-")),
             active,
-            created,
+            esc(created),
         )
     console.print(table)
 
@@ -1005,6 +1136,7 @@ def admin_scim_tokens(output: OutputMode = typer.Option("table", "--output", "-o
 @admin_app.command(name="scim-token-create")
 def admin_scim_token_create(
     description: str = typer.Option("", "--description", "-d", help="Token description"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
     """Create a new SCIM provisioning token.
 
@@ -1017,19 +1149,23 @@ def admin_scim_token_create(
     body: dict = {}
     if description:
         body["description"] = description
-    with spinner("Creating SCIM token..."):
+    with _command_progress(output, "Creating SCIM token..."):
         result = client.post("/api/v1/admin/scim-tokens", body)
+    if output == "json":
+        output_json(result)
+        return
     rprint("[green]SCIM token created.[/green]")
-    rprint(f"\n[yellow]Token:[/yellow] {result.get('token', '')}")
+    rprint(f"\n[yellow]Token:[/yellow] {esc(result.get('token', ''))}")
     rprint("[dim]Save this -- it will not be shown again.[/dim]")
     if result.get("description"):
-        rprint(f"  Description: {result['description']}")
+        rprint(f"  Description: {esc(result['description'])}")
 
 
 @admin_app.command(name="scim-token-revoke")
 def admin_scim_token_revoke(
     token_id: str = typer.Argument(..., help="Token ID to revoke"),
-    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt"),
+    force: bool = typer.Option(False, "--force", "--yes", "-f", help="Skip confirmation prompt"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
     """Revoke a SCIM provisioning token.
 
@@ -1042,11 +1178,25 @@ def admin_scim_token_revoke(
 
         observal admin scim-token-revoke abc12345-uuid --force
     """
+    token_id = _uuid(token_id, "SCIM token ID", "Revoke SCIM token")
+    force = _command_value(force)
+    output = _command_value(output)
+    if output == "json" and not force:
+        fail(
+            ErrorCategory.VALIDATION,
+            "JSON mode cannot prompt before revoking a SCIM token.",
+            operation="Revoke SCIM token",
+            resource="SCIM token",
+            remediation="Add --force to confirm revocation.",
+        )
     if not force:
         typer.confirm(f"Revoke SCIM token {token_id[:8]}...?", abort=True)
-    with spinner("Revoking SCIM token..."):
-        client.delete(f"/api/v1/admin/scim-tokens/{token_id}")
-    rprint(f"[green]SCIM token {token_id[:8]}... revoked.[/green]")
+    with _command_progress(output, "Revoking SCIM token..."):
+        result = client.delete(f"/api/v1/admin/scim-tokens/{token_id}")
+    if output == "json":
+        output_json(result)
+        return
+    rprint(f"[green]SCIM token {esc(token_id[:8])}... revoked.[/green]")
 
 
 # ── Security Events ─────────────────────────────────────
@@ -1054,11 +1204,12 @@ def admin_scim_token_revoke(
 
 @admin_app.command(name="security-events")
 def admin_security_events(
-    event_type: str = typer.Option(None, "--type", "-t", help="Filter by event type"),
-    severity: str = typer.Option(None, "--severity", "-s", help="Filter: info, warning, critical"),
-    actor: str = typer.Option(None, "--actor", "-a", help="Filter by actor email"),
-    limit: int = typer.Option(50, "--limit", "-n"),
+    event_type: str | None = typer.Option(None, "--type", "-t", help="Filter by event type"),
+    severity: str | None = typer.Option(None, "--severity", "-s", help="Filter: info, warning, critical"),
+    actor: str | None = typer.Option(None, "--actor", "-a", help="Filter by actor email"),
+    limit: int = typer.Option(50, "--limit", "-n", min=1, max=1000),
     output: OutputMode = typer.Option("table", "--output", "-o"),
+    offset: int = typer.Option(0, "--offset", min=0, help="Skip the first N events"),
 ):
     """View security events log.
 
@@ -1073,19 +1224,19 @@ def admin_security_events(
 
         observal admin security-events --actor alice@example.com -n 100
     """
-    params: dict = {"limit": str(limit)}
+    offset = _command_value(offset)
+    params: dict = {"limit": limit, "offset": offset}
     if event_type:
-        params["event_type"] = event_type
+        params["event_type"] = event_type.strip()
     if severity:
-        params["severity"] = severity
+        params["severity"] = _command_choice(
+            severity, _SECURITY_SEVERITIES, "security severity", "List security events"
+        )
     if actor:
-        params["actor_email"] = actor
+        params["actor_email"] = actor.strip()
 
-    from urllib.parse import urlencode
-
-    qs = f"?{urlencode(params)}" if params else ""
-    with spinner():
-        data = client.get(f"/api/v1/admin/security-events{qs}")
+    with _command_progress(output):
+        data = client.get("/api/v1/admin/security-events", params=params)
     events = data.get("events", data) if isinstance(data, dict) else data
     if output == "json":
         output_json(data)
@@ -1105,14 +1256,14 @@ def admin_security_events(
         sev_color = {"critical": "red", "warning": "yellow", "info": "dim"}.get(sev, "white")
         outcome = ev.get("outcome", "")
         outcome_color = "green" if outcome == "success" else "red" if outcome == "failure" else "white"
-        ts = ev.get("timestamp", ev.get("created_at", ""))[:19]
+        timestamp = str(ev.get("timestamp") or ev.get("created_at") or "")[:19]
         table.add_row(
-            ts,
-            ev.get("event_type", ""),
-            f"[{sev_color}]{sev}[/{sev_color}]",
-            ev.get("actor_email", "-"),
-            f"[{outcome_color}]{outcome}[/{outcome_color}]",
-            (ev.get("detail", "") or "")[:40],
+            esc(timestamp),
+            esc(ev.get("event_type", "")),
+            f"[{sev_color}]{esc(sev)}[/{sev_color}]",
+            esc(ev.get("actor_email", "-")),
+            f"[{outcome_color}]{esc(outcome)}[/{outcome_color}]",
+            esc(str(ev.get("detail") or "")[:40]),
         )
     console.print(table)
 
@@ -1122,39 +1273,49 @@ def admin_security_events(
 
 @admin_app.command(name="audit-log")
 def admin_audit_log(
-    action: str = typer.Option(None, "--action", "-a", help="Filter by action (e.g. auth.login)"),
-    actor: str = typer.Option(None, "--actor", help="Filter by actor email"),
-    resource_type: str = typer.Option(None, "--resource-type", "-r", help="Filter by resource type"),
-    limit: int = typer.Option(50, "--limit", "-n"),
+    action: str | None = typer.Option(None, "--action", "-a", help="Filter by action"),
+    actor: str | None = typer.Option(None, "--actor", help="Filter by actor name, username, or email"),
+    resource_type: str | None = typer.Option(None, "--resource-type", "-r", help="Filter by resource type"),
+    limit: int = typer.Option(50, "--limit", "-n", min=1, max=500),
     output: OutputMode = typer.Option("table", "--output", "-o"),
+    sensitivity: str | None = typer.Option(None, "--sensitivity", help="Filter by sensitivity"),
+    outcome: str | None = typer.Option(None, "--outcome", help="Filter by outcome"),
+    source: str | None = typer.Option(None, "--source", help="Filter by source: server or cli"),
+    start_date: str | None = typer.Option(None, "--start-date", help="Filter from an ISO 8601 date or timestamp"),
+    end_date: str | None = typer.Option(None, "--end-date", help="Filter through an ISO 8601 date or timestamp"),
+    offset: int = typer.Option(0, "--offset", min=0, help="Skip the first N entries"),
 ):
-    """Query the audit log.
-
-    Shows timestamped entries of admin and user actions with actor,
-    resource, IP address, and detail fields. Supports filtering by
-    action, actor, and resource type.
+    """Query the compliance audit log.
 
     Examples:
 
         observal admin audit-log
 
-        observal admin audit-log --action auth.login --limit 100
-
-        observal admin audit-log --actor alice@example.com -r agent
+        observal admin audit-log --action auth.login --limit 100 --output json
     """
-    from urllib.parse import urlencode
+    sensitivity = _command_value(sensitivity)
+    outcome = _command_value(outcome)
+    source = _command_value(source)
+    start_date = _command_value(start_date)
+    end_date = _command_value(end_date)
+    offset = _command_value(offset)
+    params: dict = {"limit": limit, "offset": offset}
+    for key, value in (
+        ("action", action),
+        ("actor", actor),
+        ("resource_type", resource_type),
+        ("sensitivity", sensitivity),
+        ("outcome", outcome),
+        ("start_date", start_date),
+        ("end_date", end_date),
+    ):
+        if value:
+            params[key] = value.strip()
+    if source:
+        params["source"] = _command_choice(source, _AUDIT_SOURCES, "audit source", "Query audit log")
 
-    params: dict = {"limit": str(limit)}
-    if action:
-        params["action"] = action
-    if actor:
-        params["actor_email"] = actor
-    if resource_type:
-        params["resource_type"] = resource_type
-
-    qs = f"?{urlencode(params)}" if params else ""
-    with spinner():
-        data = client.get(f"/api/v1/admin/audit-log{qs}")
+    with _command_progress(output):
+        data = client.get("/api/v1/admin/audit-log", params=params)
     if output == "json":
         output_json(data)
         return
@@ -1169,31 +1330,36 @@ def admin_audit_log(
     table.add_column("IP", style="dim")
     table.add_column("Detail", max_width=30)
     for entry in data:
-        ts = entry.get("timestamp", entry.get("created_at", ""))[:19]
-        resource = entry.get("resource_type", "")
+        timestamp = str(entry.get("timestamp") or entry.get("created_at") or "")[:19]
+        resource = str(entry.get("resource_type") or "")
         if entry.get("resource_name"):
             resource += f"/{entry['resource_name']}"
         table.add_row(
-            ts,
-            entry.get("actor_email", "-"),
-            entry.get("action", ""),
-            resource,
-            entry.get("ip_address", "-"),
-            (entry.get("detail", "") or "")[:30],
+            esc(timestamp),
+            esc(entry.get("actor_email", "-")),
+            esc(entry.get("action", "")),
+            esc(resource),
+            esc(entry.get("ip_address", "-")),
+            esc(str(entry.get("detail") or "")[:30]),
         )
     console.print(table)
 
 
 @admin_app.command(name="audit-log-export")
 def admin_audit_log_export(
-    action: str = typer.Option(None, "--action", "-a", help="Filter by action"),
-    actor: str = typer.Option(None, "--actor", help="Filter by actor email"),
-    file: str = typer.Option(None, "--file", "-f", help="Write output to file"),
+    action: str | None = typer.Option(None, "--action", "-a", help="Filter by action"),
+    actor: str | None = typer.Option(None, "--actor", help="Filter by actor name, username, or email"),
+    file: str | None = typer.Option(None, "--file", "-f", help="Write output to file"),
+    output: OutputMode = typer.Option("table", "--output", "-o", help="CSV in table mode, JSON in JSON mode"),
+    resource_type: str | None = typer.Option(None, "--resource-type", "-r", help="Filter by resource type"),
+    sensitivity: str | None = typer.Option(None, "--sensitivity", help="Filter by sensitivity"),
+    outcome: str | None = typer.Option(None, "--outcome", help="Filter by outcome"),
+    source: str | None = typer.Option(None, "--source", help="Filter by source: server or cli"),
+    start_date: str | None = typer.Option(None, "--start-date", help="Filter from an ISO 8601 date or timestamp"),
+    end_date: str | None = typer.Option(None, "--end-date", help="Filter through an ISO 8601 date or timestamp"),
+    force: bool = typer.Option(False, "--force", "--yes", help="Overwrite an existing export file"),
 ):
-    """Export audit log as CSV.
-
-    Downloads the audit log in CSV format. Prints to stdout by default,
-    or writes to a file with --file.
+    """Export the compliance audit log as CSV or JSON.
 
     Examples:
 
@@ -1201,34 +1367,79 @@ def admin_audit_log_export(
 
         observal admin audit-log-export --file audit.csv
 
-        observal admin audit-log-export --action auth.login --actor bob@example.com
+        observal admin audit-log-export --output json --file audit.json
     """
-    from urllib.parse import urlencode
-
+    output = _command_value(output)
+    force = _command_value(force)
+    resource_type = _command_value(resource_type)
+    sensitivity = _command_value(sensitivity)
+    outcome = _command_value(outcome)
+    source = _command_value(source)
+    start_date = _command_value(start_date)
+    end_date = _command_value(end_date)
     params: dict = {}
-    if action:
-        params["action"] = action
-    if actor:
-        params["actor_email"] = actor
+    for key, value in (
+        ("action", action),
+        ("actor", actor),
+        ("resource_type", resource_type),
+        ("sensitivity", sensitivity),
+        ("outcome", outcome),
+        ("start_date", start_date),
+        ("end_date", end_date),
+    ):
+        if value:
+            params[key] = value.strip()
+    if source:
+        params["source"] = _command_choice(source, _AUDIT_SOURCES, "audit source", "Export audit log")
 
-    qs = f"?{urlencode(params)}" if params else ""
-    with spinner("Exporting audit log..."):
-        data = client.get_text(f"/api/v1/admin/audit-log/export{qs}", content_type="text/csv")
+    destination = Path(file).expanduser() if file else None
+    if destination is not None and destination.exists() and not force:
+        if output == "json":
+            fail(
+                ErrorCategory.CONFLICT,
+                f"Audit export already exists: {destination}.",
+                operation="Export audit log",
+                resource=str(destination),
+                remediation="Choose another path or add --force.",
+            )
+        typer.confirm(f"Overwrite {destination}?", abort=True)
 
-    if file:
-        from pathlib import Path
-
-        Path(file).write_text(data)
-        rprint(f"[green]Audit log exported to {file}[/green]")
+    if output == "json":
+        params["format"] = "json"
+        with _command_progress(output, "Exporting audit log..."):
+            data = client.get("/api/v1/admin/audit-log/export", params=params)
+        content = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
     else:
-        rprint(data)
+        with _command_progress("json" if destination is None else output, "Exporting audit log..."):
+            content = client.get_text("/api/v1/admin/audit-log/export", params=params or None, content_type="text/csv")
+        data = None
+
+    if destination is not None:
+        _atomic_write(destination, content, "Export audit log")
+        if output == "json":
+            output_json(
+                {
+                    "path": str(destination),
+                    "format": "json",
+                    "record_count": data.get("record_count") if isinstance(data, dict) else None,
+                }
+            )
+        else:
+            rprint(f"[green]Audit log exported to {esc(destination)}[/green]")
+        return
+    if output == "json":
+        output_json(data)
+    else:
+        typer.echo(content, nl=False)
 
 
 # ── Trace Privacy ───────────────────────────────────────
 
 
 @admin_app.command(name="trace-privacy")
-def admin_trace_privacy():
+def admin_trace_privacy(
+    output: OutputMode = typer.Option("table", "--output", "-o"),
+):
     """View trace privacy setting.
 
     Shows whether trace privacy (sensitive data redaction) is currently
@@ -1238,8 +1449,11 @@ def admin_trace_privacy():
 
         observal admin trace-privacy
     """
-    with spinner():
+    with _command_progress(output):
         data = client.get("/api/v1/admin/trace-privacy")
+    if output == "json":
+        output_json(data)
+        return
     enabled = data.get("trace_privacy", False)
     status = "[green]enabled[/green]" if enabled else "[red]disabled[/red]"
     rprint(f"  Trace privacy: {status}")
@@ -1248,6 +1462,7 @@ def admin_trace_privacy():
 @admin_app.command(name="trace-privacy-set")
 def admin_trace_privacy_set(
     enabled: bool = typer.Argument(..., help="true or false"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
     """Enable or disable trace privacy (redacts sensitive trace data).
 
@@ -1260,8 +1475,11 @@ def admin_trace_privacy_set(
 
         observal admin trace-privacy-set false
     """
-    with spinner("Updating trace privacy..."):
+    with _command_progress(output, "Updating trace privacy..."):
         result = client.put("/api/v1/admin/trace-privacy", {"trace_privacy": enabled})
+    if output == "json":
+        output_json(result)
+        return
     status = "[green]enabled[/green]" if result.get("trace_privacy") else "[red]disabled[/red]"
     rprint(f"  Trace privacy: {status}")
 
@@ -1270,7 +1488,9 @@ def admin_trace_privacy_set(
 
 
 @admin_app.command(name="cache-clear")
-def admin_cache_clear():
+def admin_cache_clear(
+    output: OutputMode = typer.Option("table", "--output", "-o"),
+):
     """Clear all server caches.
 
     Flushes all in-memory and Redis caches on the server. Useful after
@@ -1280,9 +1500,12 @@ def admin_cache_clear():
 
         observal admin cache-clear
     """
-    with spinner("Clearing caches..."):
-        client.post("/api/v1/admin/cache/clear")
-    rprint("[green]All caches cleared.[/green]")
+    with _command_progress(output, "Clearing caches..."):
+        result = client.post("/api/v1/admin/cache/clear")
+    if output == "json":
+        output_json(result)
+        return
+    rprint(f"[green]Cleared {result.get('cleared', 0)} cached entries.[/green]")
 
 
 # ── Role Update ─────────────────────────────────────────
@@ -1292,6 +1515,7 @@ def admin_cache_clear():
 def admin_set_role(
     email: str = typer.Argument(..., help="Email of the user"),
     role: str = typer.Argument(..., help="New role: super_admin, admin, reviewer, or user"),
+    output: OutputMode = typer.Option("table", "--output", "-o"),
 ):
     """Change a user's role.
 
@@ -1304,15 +1528,14 @@ def admin_set_role(
 
         observal admin set-role bob@example.com reviewer
     """
-    with spinner("Looking up user..."):
-        users = client.get("/api/v1/admin/users")
-    match = next((u for u in users if u["email"] == email.strip().lower()), None)
-    if not match:
-        rprint(f"[red]User not found:[/red] {email}")
-        raise typer.Exit(1)
-    with spinner("Updating role..."):
+    role = _command_choice(role, _ADMIN_ROLES, "user role", "Update user role")
+    match = _admin_user(email, output, "Update user role")
+    with _command_progress(output, "Updating role..."):
         result = client.put(f"/api/v1/admin/users/{match['id']}/role", {"role": role})
-    rprint(f"[green]{result.get('email', email)} is now {result.get('role', role)}[/green]")
+    if output == "json":
+        output_json(result)
+        return
+    rprint(f"[green]{esc(result.get('email', email))} is now {esc(result.get('role', role))}[/green]")
 
 
 # ── Traces / Spans (on ops_app) ─────────────────────────
@@ -1348,12 +1571,12 @@ def _traces_impl(platform, days, limit, turn, span, output):
     # Fetch sessions from the REST endpoint (same data the web UI shows)
     params: dict = {"limit": limit}
     if platform:
-        platform = _ops_choice(platform, tuple(VALID_HARNESSES), "harness platform", "List sessions")
+        platform = _command_choice(platform, tuple(VALID_HARNESSES), "harness platform", "List sessions")
         params["platform"] = platform
     if days:
         params["days"] = days
 
-    with _ops_progress(output, "Querying sessions..."):
+    with _command_progress(output, "Querying sessions..."):
         sessions = client.get("/api/v1/sessions", params=params)
 
     if output == "json":

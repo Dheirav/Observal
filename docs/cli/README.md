@@ -27,8 +27,8 @@ Complete reference for the `observal` CLI. Every subcommand has its own page; th
 | [`observal registry models`](models.md)                                                    | Inspect packaged harness model catalogs                                               |
 | [`observal agent`](agent.md)                                                               | Create, install, and manage agents                                                     |
 | [`observal team`](team.md)                                                                 | Manage teamspaces, members, join requests, and invitations                            |
-| [`observal ops`](ops.md)                                                                   | Observability and operations (sessions, events, metrics, feedback)                    |
-| [`observal admin`](admin.md)                                                               | Admin operations (settings, users, review, security)                                  |
+| [`observal ops`](ops.md)                                                                   | Observability and operations (sessions, telemetry, logs, insights)                    |
+| [`observal admin`](admin.md)                                                               | Core administration and submission review                                             |
 | [`observal support`](https://github.com/Observal/Observal/blob/main/docs/cli/support.md) | Generate and inspect diagnostic support bundles                                       |
 | [`observal doctor`](doctor.md)                                                             | Diagnose harness compatibility; `doctor patch` applies instrumentation                |
 | [`observal migrate`](https://github.com/Observal/Observal/blob/main/docs/cli/migrate.md) | Export/import PostgreSQL registry (shallow copy) and ClickHouse telemetry (deep copy) |

@@ -57,8 +57,12 @@ def cli(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     monkeypatch.setattr(ops, "console", fake_console)
     monkeypatch.setattr(ops, "spinner", lambda *args, **kwargs: nullcontext())
     monkeypatch.setattr(ops, "relative_time", lambda value: f"relative:{value}")
-    monkeypatch.setattr(ops.config, "resolve_alias", lambda value: value)
-    monkeypatch.setattr(ops.config, "save_last_results", saved_results.append)
+    monkeypatch.setattr(ops.config, "resolve_alias", lambda value, expected_type=None: value)
+    monkeypatch.setattr(
+        ops.config,
+        "save_last_results",
+        lambda items, item_type=None: saved_results.append((items, item_type)),
+    )
     monkeypatch.setattr(ops, "password_input", blocked("password_input"))
     monkeypatch.setattr(ops.typer, "confirm", blocked("confirm"))
     for method in ("get", "get_text", "post", "put", "delete"):
@@ -114,7 +118,7 @@ def test_review_list_filters_caches_and_renders_rows(cli, monkeypatch):
     ops.review_list("mcp", "components", "table")
 
     assert calls == [("/api/v1/review", {"type": "mcp", "tab": "components"})]
-    assert cli.saved == [reviews]
+    assert cli.saved == [(reviews, "review")]
     table = cli.console.renderables[0]
     assert table.title == "Pending Reviews (2)"
     assert table.columns[1]._cells == ["mcp", "agent"]
@@ -138,6 +142,7 @@ def test_review_list_supports_json_and_empty_results(cli, monkeypatch):
 
     assert calls == [("/api/v1/review", None), ("/api/v1/review", None)]
     assert cli.json == [[{"id": "one"}]]
+    assert cli.saved == [([{"id": "one"}], "review"), ([], "review")]
     assert "No pending reviews" in cli.text()
 
 
@@ -161,7 +166,7 @@ def test_review_show_resolves_and_renders_validation_details(cli, monkeypatch):
         ],
     }
     calls = []
-    monkeypatch.setattr(ops.config, "resolve_alias", lambda value: f"resolved-{value}")
+    monkeypatch.setattr(ops.config, "resolve_alias", lambda value, expected_type=None: f"resolved-{value}")
     monkeypatch.setattr(ops.client, "get", lambda path: calls.append(path) or item)
 
     ops.review_show("1", "table")
@@ -213,8 +218,8 @@ def test_review_reject_rejects_blank_reasons(cli):
     with pytest.raises(typer.Exit) as exc_info:
         ops.review_reject("item", "   ", False, False)
 
-    assert exc_info.value.exit_code == 1
-    assert "cannot be empty" in cli.text()
+    assert exc_info.value.exit_code == 7
+    assert "1 to 5,000 characters" in cli.text()
 
 
 @pytest.mark.parametrize(
@@ -455,18 +460,24 @@ def test_admin_settings_handles_table_json_and_empty_states(cli, monkeypatch):
 
 def test_admin_set_updates_the_named_setting(cli, monkeypatch):
     calls = []
-    monkeypatch.setattr(ops.client, "put", lambda path, body: calls.append((path, body)))
+    monkeypatch.setattr(
+        ops.client,
+        "put",
+        lambda path, body: calls.append((path, body)) or {"key": "retention", "value": "90"},
+    )
 
     ops.admin_set("retention", "90")
 
     assert calls == [("/api/v1/admin/settings/retention", {"value": "90"})]
-    assert "retention = 90" in cli.text()
+    assert "Updated retention" in cli.text()
+    assert "90" not in cli.text()
 
 
 def test_admin_users_renders_all_roles_and_supports_json(cli, monkeypatch):
     users = [
+        {"id": "super-id", "email": "s@example.test", "name": "S", "role": "super_admin"},
         {"id": "admin-id", "email": "a@example.test", "name": "A", "role": "admin"},
-        {"id": "developer-id", "email": "d@example.test", "name": "D", "role": "developer"},
+        {"id": "reviewer-id", "email": "r@example.test", "name": "R", "role": "reviewer"},
         {"id": "user-id", "email": "u@example.test", "name": "U", "role": "user"},
     ]
     monkeypatch.setattr(ops.client, "get", lambda path: users)
@@ -475,9 +486,19 @@ def test_admin_users_renders_all_roles_and_supports_json(cli, monkeypatch):
     ops.admin_users("json")
 
     table = cli.console.renderables[0]
-    assert table.title == "Users (3)"
-    assert table.columns[1]._cells == ["a@example.test", "d@example.test", "u@example.test"]
-    assert table.columns[3]._cells == ["[green]admin[/green]", "[cyan]developer[/cyan]", "[white]user[/white]"]
+    assert table.title == "Users (4)"
+    assert table.columns[1]._cells == [
+        "s@example.test",
+        "a@example.test",
+        "r@example.test",
+        "u@example.test",
+    ]
+    assert table.columns[3]._cells == [
+        "[magenta]super_admin[/magenta]",
+        "[green]admin[/green]",
+        "[cyan]reviewer[/cyan]",
+        "[white]user[/white]",
+    ]
     assert cli.json == [users]
 
 
@@ -528,7 +549,7 @@ def test_admin_reset_password_reports_missing_users(cli, monkeypatch):
     with pytest.raises(typer.Exit) as exc_info:
         ops.admin_reset_password("missing@example.test", True)
 
-    assert exc_info.value.exit_code == 1
+    assert exc_info.value.exit_code == 5
     assert "User not found" in cli.text()
 
 
@@ -566,7 +587,7 @@ def test_admin_reset_password_validates_interactive_confirmation(cli, monkeypatc
     with pytest.raises(typer.Exit) as exc_info:
         ops.admin_reset_password("alice@example.test", False)
 
-    assert exc_info.value.exit_code == 1
+    assert exc_info.value.exit_code == 7
     assert "Passwords do not match" in cli.text()
 
 
@@ -595,7 +616,7 @@ def test_admin_delete_user_reports_missing_users(cli, monkeypatch):
     with pytest.raises(typer.Exit) as exc_info:
         ops.admin_delete_user("missing@example.test", True)
 
-    assert exc_info.value.exit_code == 1
+    assert exc_info.value.exit_code == 5
     assert "User not found" in cli.text()
 
 
@@ -659,7 +680,7 @@ def test_admin_saml_config_handles_unconfigured_json_and_configured_values(cli, 
         "idp_sso_url": "https://idp.test/sso",
         "idp_slo_url": None,
         "sp_entity_id": "sp",
-        "saml_active": True,
+        "active": True,
         "jit_provisioning": False,
     }
     responses = iter([{}, configured, configured])
@@ -672,7 +693,7 @@ def test_admin_saml_config_handles_unconfigured_json_and_configured_values(cli, 
     output = cli.text()
     assert "SAML SSO is not configured" in output
     assert "idp_entity_id: idp" in output
-    assert "saml_active: [green]Yes" in output
+    assert "active: [green]Yes" in output
     assert "jit_provisioning: [red]No" in output
     assert cli.json == [configured]
 
@@ -692,7 +713,7 @@ def test_admin_saml_config_set_sends_all_supplied_values(cli, monkeypatch):
         (
             "/api/v1/admin/saml-config",
             {
-                "saml_active": True,
+                "active": True,
                 "jit_provisioning": False,
                 "idp_entity_id": "idp",
                 "idp_sso_url": "https://idp.test/sso",
@@ -769,11 +790,12 @@ def test_admin_scim_token_revoke_confirms_and_deletes(cli, monkeypatch):
     monkeypatch.setattr(ops.typer, "confirm", lambda prompt, abort: confirmations.append((prompt, abort)))
     monkeypatch.setattr(ops.client, "delete", calls.append)
 
-    ops.admin_scim_token_revoke("abcdefgh-1234", False)
+    token_id = "11111111-1111-1111-1111-111111111111"
+    ops.admin_scim_token_revoke(token_id, False)
 
-    assert confirmations == [("Revoke SCIM token abcdefgh...?", True)]
-    assert calls == ["/api/v1/admin/scim-tokens/abcdefgh-1234"]
-    assert "abcdefgh... revoked" in cli.text()
+    assert confirmations == [("Revoke SCIM token 11111111...?", True)]
+    assert calls == [f"/api/v1/admin/scim-tokens/{token_id}"]
+    assert "11111111... revoked" in cli.text()
 
 
 def test_admin_security_events_encodes_filters_and_renders_event_styles(cli, monkeypatch):
@@ -796,12 +818,21 @@ def test_admin_security_events_encodes_filters_and_renders_event_styles(cli, mon
         {"event_type": "view", "severity": "info", "outcome": "unknown", "detail": None},
         {"event_type": "other", "severity": "custom", "outcome": "other"},
     ]
-    monkeypatch.setattr(ops.client, "get", lambda path: calls.append(path) or {"events": events})
+    monkeypatch.setattr(ops.client, "get", lambda path, params=None: calls.append((path, params)) or {"events": events})
 
     ops.admin_security_events("login", "critical", "alice@example.test", 25, "table")
 
     assert calls == [
-        "/api/v1/admin/security-events?limit=25&event_type=login&severity=critical&actor_email=alice%40example.test"
+        (
+            "/api/v1/admin/security-events",
+            {
+                "limit": 25,
+                "offset": 0,
+                "event_type": "login",
+                "severity": "critical",
+                "actor_email": "alice@example.test",
+            },
+        )
     ]
     table = cli.console.renderables[0]
     assert table.title == "Security Events (4)"
@@ -822,7 +853,7 @@ def test_admin_security_events_encodes_filters_and_renders_event_styles(cli, mon
 
 def test_admin_security_events_supports_json_and_empty_results(cli, monkeypatch):
     responses = iter([{"events": []}, []])
-    monkeypatch.setattr(ops.client, "get", lambda path: next(responses))
+    monkeypatch.setattr(ops.client, "get", lambda path, params=None: next(responses))
 
     ops.admin_security_events(None, None, None, 50, "json")
     ops.admin_security_events(None, None, None, 50, "table")
@@ -845,12 +876,21 @@ def test_admin_audit_log_encodes_filters_and_renders_resources(cli, monkeypatch)
         },
         {"created_at": "2026-06-02T12:00:00Z", "action": "login", "resource_type": "user"},
     ]
-    monkeypatch.setattr(ops.client, "get", lambda path: calls.append(path) or entries)
+    monkeypatch.setattr(ops.client, "get", lambda path, params=None: calls.append((path, params)) or entries)
 
     ops.admin_audit_log("agent.update", "alice@example.test", "agent", 10, "table")
 
     assert calls == [
-        "/api/v1/admin/audit-log?limit=10&action=agent.update&actor_email=alice%40example.test&resource_type=agent"
+        (
+            "/api/v1/admin/audit-log",
+            {
+                "limit": 10,
+                "offset": 0,
+                "action": "agent.update",
+                "actor": "alice@example.test",
+                "resource_type": "agent",
+            },
+        )
     ]
     table = cli.console.renderables[0]
     assert table.title == "Audit Log (2 entries)"
@@ -860,7 +900,7 @@ def test_admin_audit_log_encodes_filters_and_renders_resources(cli, monkeypatch)
 
 def test_admin_audit_log_supports_json_and_empty_results(cli, monkeypatch):
     responses = iter([[{"action": "login"}], []])
-    monkeypatch.setattr(ops.client, "get", lambda path: next(responses))
+    monkeypatch.setattr(ops.client, "get", lambda path, params=None: next(responses))
 
     ops.admin_audit_log(None, None, None, 50, "json")
     ops.admin_audit_log(None, None, None, 50, "table")
@@ -869,32 +909,33 @@ def test_admin_audit_log_supports_json_and_empty_results(cli, monkeypatch):
     assert "No audit log entries found" in cli.text()
 
 
-def test_admin_audit_log_export_prints_or_writes_csv(cli, monkeypatch):
+def test_admin_audit_log_export_prints_or_writes_csv(cli, monkeypatch, tmp_path):
     responses = iter(["a,b\n1,2\n", "a,b\n3,4\n"])
     calls = []
-    writes = []
+    echoes = []
 
-    def get_text(path, *, content_type):
-        calls.append((path, content_type))
+    def get_text(path, params=None, *, content_type):
+        calls.append((path, params, content_type))
         return next(responses)
 
     monkeypatch.setattr(ops.client, "get_text", get_text)
-    monkeypatch.setattr(
-        Path,
-        "write_text",
-        lambda self, data, *args, **kwargs: writes.append((str(self), data)),
-    )
+    monkeypatch.setattr(ops.typer, "echo", lambda value, nl=False: echoes.append((value, nl)))
+    destination = tmp_path / "audit.csv"
 
     ops.admin_audit_log_export("login", "alice@example.test", None)
-    ops.admin_audit_log_export(None, None, "audit.csv")
+    ops.admin_audit_log_export(None, None, str(destination))
 
     assert calls == [
-        ("/api/v1/admin/audit-log/export?action=login&actor_email=alice%40example.test", "text/csv"),
-        ("/api/v1/admin/audit-log/export", "text/csv"),
+        (
+            "/api/v1/admin/audit-log/export",
+            {"action": "login", "actor": "alice@example.test"},
+            "text/csv",
+        ),
+        ("/api/v1/admin/audit-log/export", None, "text/csv"),
     ]
-    assert "a,b\n1,2\n" in cli.lines
-    assert writes == [("audit.csv", "a,b\n3,4\n")]
-    assert "Audit log exported to audit.csv" in cli.text()
+    assert echoes == [("a,b\n1,2\n", False)]
+    assert destination.read_text() == "a,b\n3,4\n"
+    assert f"Audit log exported to {destination}" in cli.text()
 
 
 @pytest.mark.parametrize(("enabled", "label"), [(True, "enabled"), (False, "disabled")])
@@ -923,12 +964,12 @@ def test_admin_trace_privacy_set_uses_the_server_result(cli, monkeypatch, enable
 
 def test_admin_cache_clear_posts_to_the_clear_endpoint(cli, monkeypatch):
     calls = []
-    monkeypatch.setattr(ops.client, "post", lambda path: calls.append(path))
+    monkeypatch.setattr(ops.client, "post", lambda path: calls.append(path) or {"cleared": 4})
 
     ops.admin_cache_clear()
 
     assert calls == ["/api/v1/admin/cache/clear"]
-    assert "All caches cleared" in cli.text()
+    assert "Cleared 4 cached entries" in cli.text()
 
 
 def test_admin_set_role_reports_missing_users(cli, monkeypatch):
@@ -937,7 +978,7 @@ def test_admin_set_role_reports_missing_users(cli, monkeypatch):
     with pytest.raises(typer.Exit) as exc_info:
         ops.admin_set_role("missing@example.test", "admin")
 
-    assert exc_info.value.exit_code == 1
+    assert exc_info.value.exit_code == 5
     assert "User not found" in cli.text()
 
 
@@ -1521,6 +1562,135 @@ def test_ops_type_validation_is_categorized(cli):
     ],
 )
 def test_ops_json_validation_uses_shared_error_boundary(arguments):
+    result = runner.invoke(cli_app, arguments)
+
+    assert result.exit_code == 7
+    assert result.stdout == ""
+    assert json.loads(result.stderr)["error"]["category"] == "validation"
+
+
+def test_every_admin_workflow_has_output_contract():
+    command = get_command(cli_app).commands["admin"]
+
+    def leaves(group):
+        for name, child in group.commands.items():
+            if isinstance(child, Group) and child.commands:
+                yield from leaves(child)
+            else:
+                yield name, child
+
+    rows = list(leaves(command))
+    assert len(rows) == 24
+    assert all(any(parameter.name == "output" for parameter in leaf.params) for _name, leaf in rows)
+
+
+def test_admin_mutations_return_json_without_human_output(cli, monkeypatch):
+    user = {"id": "user-id", "email": "alice@example.test", "name": "Alice", "role": "user"}
+    put_results = {
+        "/api/v1/admin/settings/secret": {"key": "secret", "value": "<redacted>", "is_sensitive": True},
+        "/api/v1/admin/users/user-id/password": {"message": "Password reset", "generated_password": "secret"},
+        "/api/v1/admin/trace-privacy": {"trace_privacy": True},
+        "/api/v1/admin/users/user-id/role": {"id": "user-id", "email": "alice@example.test", "role": "admin"},
+    }
+    monkeypatch.setattr(ops.client, "get", lambda path: [user])
+    monkeypatch.setattr(ops.client, "put", lambda path, body: put_results[path])
+    monkeypatch.setattr(ops.client, "delete", lambda path: {})
+    monkeypatch.setattr(
+        ops.client,
+        "post",
+        lambda path, body=None: (
+            {"cleared": 2}
+            if path == "/api/v1/admin/cache/clear"
+            else {"id": "review-id", "name": "component", "status": "approved"}
+        ),
+    )
+
+    ops.admin_set("secret", "never-echo", "json")
+    ops.admin_reset_password("alice@example.test", True, "json")
+    ops.admin_delete_user("alice@example.test", True, "json")
+    ops.admin_trace_privacy_set(True, "json")
+    ops.admin_cache_clear("json")
+    ops.admin_set_role("alice@example.test", "admin", "json")
+    ops.review_approve("review-id", False, False, "json")
+
+    assert cli.json == [
+        {"key": "secret", "value": "<redacted>", "is_sensitive": True},
+        {"message": "Password reset", "generated_password": "secret"},
+        {"deleted": True, "id": "user-id", "email": "alice@example.test"},
+        {"trace_privacy": True},
+        {"cleared": 2},
+        {"id": "user-id", "email": "alice@example.test", "role": "admin"},
+        {"id": "review-id", "name": "component", "status": "approved"},
+    ]
+    assert "never-echo" not in cli.text()
+    assert cli.lines == []
+
+
+def test_admin_secret_creation_mutations_return_direct_json(cli, monkeypatch):
+    responses = iter(
+        [
+            {"id": "saml-id", "active": False},
+            {"id": "token-id", "token": "one-time-token", "description": "Okta"},
+        ]
+    )
+    monkeypatch.setattr(ops.client, "put", lambda path, body: next(responses))
+    monkeypatch.setattr(ops.client, "post", lambda path, body: next(responses))
+
+    ops.admin_saml_config_set("idp", "https://idp.test/sso", None, "certificate", None, True, False, "json")
+    ops.admin_scim_token_create("Okta", "json")
+
+    assert cli.json == [
+        {"id": "saml-id", "active": False},
+        {"id": "token-id", "token": "one-time-token", "description": "Okta"},
+    ]
+    assert cli.lines == []
+
+
+def test_admin_audit_json_export_stdout_and_atomic_file(cli, monkeypatch, tmp_path):
+    export = {"audit_trail": [{"event_id": "event-1"}], "record_count": 1}
+    calls = []
+    monkeypatch.setattr(ops.client, "get", lambda path, params=None: calls.append((path, params)) or export)
+    destination = tmp_path / "audit.json"
+
+    ops.admin_audit_log_export("login", "alice@example.test", None, "json")
+    ops.admin_audit_log_export(None, None, str(destination), "json")
+
+    assert calls == [
+        (
+            "/api/v1/admin/audit-log/export",
+            {"action": "login", "actor": "alice@example.test", "format": "json"},
+        ),
+        ("/api/v1/admin/audit-log/export", {"format": "json"}),
+    ]
+    assert cli.json == [
+        export,
+        {"path": str(destination), "format": "json", "record_count": 1},
+    ]
+    assert json.loads(destination.read_text()) == export
+    assert cli.lines == []
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["admin", "delete-user", "alice@example.test", "--output", "json"],
+        ["admin", "reset-password", "alice@example.test", "--output", "json"],
+        ["admin", "saml-config-delete", "--output", "json"],
+        [
+            "admin",
+            "scim-token-revoke",
+            "11111111-1111-1111-1111-111111111111",
+            "--output",
+            "json",
+        ],
+        ["admin", "create-user", "a@example.test", "Alice", "--role", "unknown", "--output", "json"],
+        ["admin", "review", "approve", "item", "--agent", "--bundle", "--output", "json"],
+        ["admin", "review", "list", "--type", "unknown", "--output", "json"],
+        ["admin", "saml-config-set", "--output", "json"],
+        ["admin", "audit-log", "--source", "unknown", "--output", "json"],
+    ],
+)
+def test_admin_json_validation_uses_shared_error_boundary(arguments):
     result = runner.invoke(cli_app, arguments)
 
     assert result.exit_code == 7

@@ -43,6 +43,7 @@ OPERATION_LABELS = {
     "add_member": "Add teamspace member",
     "admin_audit_log": "List audit events",
     "admin_audit_log_export": "Export audit events",
+    "_admin_user": "Find administrator-managed user",
     "admin_cache_clear": "Clear server caches",
     "admin_create_user": "Create user",
     "admin_delete_user": "Delete user",
