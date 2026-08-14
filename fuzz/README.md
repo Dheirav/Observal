@@ -15,7 +15,7 @@ mirrored under `fuzz/oss-fuzz/`.
 | `session_jsonl_fuzzer` | Harness session transcripts: `ingest_classify` on the write path, `parse_raw_events` on the read path |
 | `session_structure_fuzzer` | Same pipeline, driven by Hypothesis-generated transcript records instead of raw bytes |
 | `secrets_redactor_fuzzer` | `services.secrets_redactor.redact_secrets`, applied to every line and preview before storage |
-| `support_redaction_fuzzer` | `observal_cli.support.redaction`, the single chokepoint for `observal support bundle` |
+| `support_redaction_fuzzer` | `observal_cli.support.redaction`, the single chokepoint for `observal doctor support bundle` |
 
 Every target runs entirely in-process. None of them opens a socket, reads
 credentials, touches PostgreSQL, ClickHouse or Redis, or depends on the clock,

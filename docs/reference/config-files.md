@@ -118,17 +118,9 @@ Each list invocation replaces this cache, including an empty result. Numeric row
 | --- | --- |
 | `AGENTS.md` | Rules (rules-only integration) |
 
-## Backups
+## Safe writes
 
-Every config modification by `observal doctor patch` or `observal agent pull` creates a timestamped `.bak` file next to the original:
-
-```
-~/.claude/settings.json.20260421_143055.bak
-.kiro/settings/mcp.json.20260421_143055.bak
-.cursor/mcp.json.20260421_143055.bak
-```
-
-Restore by moving the `.bak` back in place.
+`observal doctor patch` and `observal doctor cleanup` write each managed configuration file atomically and preserve unrelated entries. Use `--dry-run --output json` to review planned harness changes before writing. Agent Pull reports every created or merged file in its result.
 
 ## File permissions
 

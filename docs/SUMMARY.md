@@ -44,6 +44,7 @@
 * [observal ops](cli/ops.md)
 * [observal admin](cli/admin.md)
 * [observal doctor](cli/doctor.md)
+  * [Support bundles](cli/support.md)
 * [observal self](cli/self.md)
 * [observal registry prompt](cli/prompt.md)
 * [observal server](cli/server.md)

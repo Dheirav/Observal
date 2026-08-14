@@ -94,10 +94,11 @@ observal admin review list --output json             # pending submissions
 ```
 observal agent pull <agent> --harness <harness>             # write agent config to harness files
 observal scan [--harness <harness>]                          # discover what's installed (read-only)
-observal doctor patch --all-harnesses                       # install hooks for every harness
-observal doctor patch --harness <harness>                    # install hooks for a specific harness
+observal doctor patch --all-harnesses --output json         # install hooks for every harness
+observal doctor patch --harness <harness> --output json      # install hooks for a specific harness
 observal use <profile>                               # swap harness config from a profile
-observal doctor                                      # diagnose harness/Observal issues
+observal doctor --output json                        # diagnose harness/Observal issues
+observal doctor support bundle --output json         # create a redacted support archive
 observal config show                                 # show current config
 ```
 
