@@ -97,9 +97,9 @@ Every command available in the installed CLI. This block is generated from the T
 - `observal inbox dismiss`: Dismiss an item without acting on it.
 - `observal inbox done`: Resolve an item.
 - `observal inbox list`: List your inbox items.
-- `observal inbox read`: Mark an item read. This does not resolve it — it stays in your open list.
+- `observal inbox read`: Mark an item read without resolving it.
 - `observal inbox read-all`: Mark everything matching the filter as read.
-- `observal inbox reopen`: Reopen an item you resolved or dismissed by mistake.
+- `observal inbox reopen`: Reopen a resolved or dismissed item.
 - `observal inbox show`: Show one item with its full action history.
 - `observal inbox unread`: Mark an item unread again.
 

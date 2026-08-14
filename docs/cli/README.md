@@ -19,6 +19,7 @@ Complete reference for the `observal` CLI. Every subcommand has its own page; th
 | [`observal config`](config.md)                                                             | Local CLI configuration, aliases                                                      |
 | [`observal scan`](scan.md)                                                                 | Discover what's installed across your harnesses (read-only)                           |
 | [`observal outdated`](outdated.md)                                                         | Compare installed agent and component versions with the active registry               |
+| [`observal inbox`](inbox.md)                                                               | Read and update the signed-in user's work and event feed                               |
 | [`observal agent pull`](pull.md)                                                           | Install a published agent into an harness                                             |
 | [`observal registry`](registry.md)                                                         | Publish and manage components (MCP / skill / hook / prompt / sandbox)                 |
 | [`observal registry recommend`](recommend.md)                                              | Get personalized component recommendations                                            |
