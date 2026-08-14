@@ -441,6 +441,7 @@ observal registry hook submit [OPTIONS]
 | `--source-ref` | | Branch/tag to track (default: main) |
 | `--source-path` | | Directory within repo containing hook files |
 | `--requires` | | Install prerequisites (repeatable) |
+| `--output` | `-o` | Output format: `table` or `json` |
 
 ```bash
 observal registry hook submit
@@ -505,13 +506,17 @@ observal registry hook install <id-or-name> --harness <harness> [--platform PLAT
 | `--platform` | `-p` | Platform: `win32`, `darwin`, `linux` |
 | `--raw` | | Output raw JSON only (no file writes) |
 | `--dir` | `-d` | Project directory for file writes (default: cwd) |
+| `--output` | `-o` | Output the complete installation result as table or JSON |
 
 ```bash
 observal registry hook install my-hook --harness claude-code
 observal registry hook install @guard --harness kiro --dir ./project
 observal registry hook install my-hook --harness cursor --raw
 observal registry hook install my-hook --harness claude-code --platform darwin
+observal registry hook install my-hook --harness claude-code --output json
 ```
+
+Hook installation validates every path before writing, refuses to replace malformed existing JSON, writes files atomically, and does not duplicate an existing event entry when repeated.
 
 ---
 
@@ -530,6 +535,7 @@ observal registry hook edit <id-or-name> [OPTIONS]
 | `--description` | `-d` | New description |
 | `--version` | `-v` | New version string |
 | `--event` | `-e` | New event type |
+| `--output` | `-o` | Output format: `table` or `json` |
 
 ```bash
 observal registry hook edit my-hook --description "Updated guard hook"

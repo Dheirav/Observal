@@ -115,15 +115,15 @@ On install, registry_direct skills write `<skill-name>/SKILL.md` and `<skill-nam
 ### Hook
 
 ```bash
-observal registry hook submit --name guard --description 'Guard prompts' --event UserPromptSubmit --handler-command './guard.sh' --execution-mode sync --timeout 10 --scope agent --harness claude-code
-observal registry hook submit --from-file hook.json --script ./pre-commit.sh
+observal registry hook submit --name guard --description 'Guard prompts' --event UserPromptSubmit --handler-command './guard.sh' --execution-mode sync --timeout 10 --scope agent --harness claude-code --output json
+observal registry hook submit --from-file hook.json --output json
 ```
 
 Optional: `--source-url URL --source-ref main`, `--requires dep1 --requires dep2`. Timeout caps: blocking 30s, sync 10s, async 60s.
 
-**Hook events:** `Start`, `Stop`, `UserPromptSubmit`, `SubagentComplete`, `ToolResult`, `Error`
+**Hook events:** `PreToolUse`, `PostToolUse`, `Notification`, `Stop`, `SubagentStop`, `SessionStart`, `UserPromptSubmit`
 **Execution modes:** `blocking` (waits for completion), `sync` (waits, shorter timeout), `async` (fire and forget)
-**Handler types:** `script` (runs a shell script), `http` (calls a webhook URL)
+**Handler types:** `command` (runs a command or stored script), `http` (calls a webhook URL)
 
 ### Prompt
 
@@ -152,15 +152,16 @@ observal registry mcp install NAME --harness cursor --version 2.1.0 --no-prompt 
 observal registry skill install NAME --harness kiro --scope user --output json
 observal registry skill install NAME --harness claude-code --scope project --output json
 observal registry skill install NAME --harness claude-code --version 1.2.0 --output json
-observal registry hook install NAME --harness kiro
-observal registry hook install NAME --harness claude-code --platform darwin --dir .
+observal registry hook install NAME --harness kiro --output json
+observal registry hook install NAME --harness claude-code --platform darwin --dir . --output json
 ```
 
-**Flags (all install commands):**
+**Install flags:**
 - `--harness` (required): target harness
-- `--version <semver>`: install a specific version instead of latest
-- `--raw`: output JSON only (MCP)
-- `--scope user|project`: install scope (skill)
+- `--version <semver>`: MCP and skill only
+- `--raw`: config-only output for MCP, response-only output for skill and hook
+- `--scope user|project`: skill only
+- `--output json`: complete operation result while preserving normal writes
 
 ---
 
@@ -172,7 +173,7 @@ observal registry hook install NAME --harness claude-code --platform darwin --di
 observal registry mcp edit NAME --from-file updates.json --output json
 observal registry mcp edit NAME --name new-name --description 'New desc' --output json
 observal registry skill edit NAME --from-file updates.json --output json
-observal registry hook edit NAME --version 1.2.0 --event Stop
+observal registry hook edit NAME --version 1.2.0 --event Stop --output json
 observal registry prompt edit NAME --template 'New template body'
 observal registry sandbox edit NAME --image python:3.12-slim
 ```

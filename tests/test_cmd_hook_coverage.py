@@ -13,6 +13,7 @@ from typer.testing import CliRunner
 
 import observal_cli.cmd_hook as hook
 from observal_cli import lockfile
+from observal_cli.errors import CliError, ErrorCategory
 from observal_cli.main import app
 
 runner = CliRunner()
@@ -69,8 +70,8 @@ def test_submit_existing_draft_and_rejects_conflicting_modes(monkeypatch):
 
     assert submitted.exit_code == 0, submitted.output
     assert "Draft submitted for review" in submitted.output
-    assert conflicting.exit_code == 1
-    assert "Cannot use" in conflicting.output
+    assert conflicting.exit_code == 7
+    assert "Draft creation" in conflicting.output
     resolve.assert_called_once_with("hook", "alice/draft")
     post.assert_called_once_with("/api/v1/hooks/resolved-draft/submit")
 
@@ -115,13 +116,13 @@ def test_submit_from_file_sets_owner_and_preserves_publish_target(tmp_path, monk
 
 
 @pytest.mark.parametrize(
-    ("filename", "contents", "message"),
+    ("filename", "contents", "exit_code", "message"),
     [
-        ("missing.json", None, "File not found"),
-        ("broken.json", "{not-json", "Invalid JSON"),
+        ("missing.json", None, 5, "not found"),
+        ("broken.json", "{not-json", 7, "not valid JSON"),
     ],
 )
-def test_submit_from_file_reports_parse_failures(tmp_path, filename, contents, message, monkeypatch):
+def test_submit_from_file_reports_parse_failures(tmp_path, filename, contents, exit_code, message, monkeypatch):
     source = tmp_path / filename
     if contents is not None:
         source.write_text(contents, encoding="utf-8")
@@ -130,7 +131,7 @@ def test_submit_from_file_reports_parse_failures(tmp_path, filename, contents, m
 
     result = runner.invoke(app, ["registry", "hook", "submit", "--from-file", str(source)])
 
-    assert result.exit_code == 1
+    assert result.exit_code == exit_code
     assert message in result.output
     post.assert_not_called()
 
@@ -272,7 +273,7 @@ def test_submit_http_flags_use_defaults(monkeypatch):
                 "--handler-command",
                 "guard.py",
             ],
-            "Invalid event",
+            "Unknown hook event",
         ),
         (
             [
@@ -287,7 +288,7 @@ def test_submit_http_flags_use_defaults(monkeypatch):
                 "--handler-command",
                 "guard.py",
             ],
-            "Invalid handler type",
+            "Unknown hook handler type",
         ),
         (
             [
@@ -302,7 +303,7 @@ def test_submit_http_flags_use_defaults(monkeypatch):
                 "--execution-mode",
                 "parallel",
             ],
-            "Invalid execution mode",
+            "Unknown hook execution mode",
         ),
         (
             [
@@ -317,7 +318,7 @@ def test_submit_http_flags_use_defaults(monkeypatch):
                 "--scope",
                 "workspace",
             ],
-            "Invalid scope",
+            "Unknown hook scope",
         ),
         (
             [
@@ -332,9 +333,9 @@ def test_submit_http_flags_use_defaults(monkeypatch):
                 "--harness",
                 "unknown-harness",
             ],
-            "Invalid harness",
+            "Unknown harness",
         ),
-        (["--name", "guard"], "required without prompts"),
+        (["--name", "guard"], "Hook name, description"),
         (
             [
                 "--name",
@@ -346,11 +347,11 @@ def test_submit_http_flags_use_defaults(monkeypatch):
                 "--handler-type",
                 "http",
             ],
-            "handler-url is required",
+            "HTTP handler URL is required",
         ),
         (
             ["--name", "guard", "--description", "Guard", "--event", "Stop"],
-            "handler-command or",
+            "handler command or script is required",
         ),
     ],
 )
@@ -360,7 +361,7 @@ def test_submit_flag_validation_stops_before_http(arguments, message, monkeypatc
 
     result = runner.invoke(app, ["registry", "hook", "submit", *arguments])
 
-    assert result.exit_code == 1
+    assert result.exit_code == 7
     assert message in result.output
     post.assert_not_called()
 
@@ -371,8 +372,8 @@ def test_submit_reports_missing_script(monkeypatch):
 
     result = runner.invoke(app, ["registry", "hook", "submit", "--script", "missing.py"])
 
-    assert result.exit_code == 1
-    assert "Script file not found" in result.output
+    assert result.exit_code == 5
+    assert "script file was not found" in result.output
     post.assert_not_called()
 
 
@@ -383,10 +384,9 @@ def test_timeout_validation_accepts_missing_and_rejects_over_cap(capsys):
     with pytest.raises(typer.Exit) as exc:
         hook._validate_timeout("sync", {"timeout": 11})
 
-    assert exc.value.exit_code == 1
+    assert exc.value.exit_code == 7
     output = capsys.readouterr().out
-    assert "exceeds maximum 10s" in output
-    assert "async max: 60s" in output
+    assert "exceeds the 10s maximum" in output
 
 
 @pytest.mark.parametrize(
@@ -606,7 +606,6 @@ def test_install_writes_safe_files_config_and_lock_entry(tmp_path, monkeypatch):
     response = {
         "files": [
             {"path": "hooks/guard.py", "content": "print('guard')\n", "executable": True},
-            {"path": "../escape.py", "content": "bad\n", "executable": False},
         ],
         "config_path": ".claude/settings.json",
         "config_snippet": {
@@ -617,12 +616,10 @@ def test_install_writes_safe_files_config_and_lock_entry(tmp_path, monkeypatch):
         "warnings": ["Review before enabling"],
         "notes": ["Restart Claude Code"],
     }
-    chmod = Mock()
     upsert = Mock()
     monkeypatch.setattr(hook.client, "resolve_registry_reference", Mock(return_value="resolved"))
     monkeypatch.setattr(hook.client, "get", Mock(return_value=_hook_item()))
     monkeypatch.setattr(hook.client, "post", Mock(return_value=response))
-    monkeypatch.setattr(hook.os, "chmod", chmod)
     monkeypatch.setattr(lockfile, "upsert_standalone", upsert)
 
     result = runner.invoke(
@@ -633,12 +630,10 @@ def test_install_writes_safe_files_config_and_lock_entry(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     script = project / "hooks/guard.py"
     assert script.read_text(encoding="utf-8") == "print('guard')\n"
-    assert not (tmp_path / "escape.py").exists()
-    chmod.assert_called_once_with(script.resolve(), 0o755)
+    assert script.stat().st_mode & 0o111
     config_file = project / ".claude/settings.json"
     assert json.loads(config_file.read_text(encoding="utf-8")) == response["config_snippet"]
-    assert "path traversal blocked" in result.output
-    assert "Created .claude/settings.json" in result.output
+    assert "Updated" in result.output
     assert "Review before enabling" in result.output
     assert "Prerequisites required" in result.output
     assert "python>=3.11" in result.output
@@ -658,7 +653,7 @@ def test_install_writes_safe_files_config_and_lock_entry(tmp_path, monkeypatch):
     )
 
 
-def test_install_merges_existing_config_and_recovers_invalid_json(tmp_path, monkeypatch):
+def test_install_merges_existing_config_and_rejects_invalid_json(tmp_path, monkeypatch):
     project = tmp_path / "project"
     valid_path = project / "valid.json"
     invalid_path = project / "invalid.json"
@@ -695,7 +690,8 @@ def test_install_merges_existing_config_and_recovers_invalid_json(tmp_path, monk
     monkeypatch.setattr(hook.client, "resolve_registry_reference", Mock(return_value="resolved"))
     monkeypatch.setattr(hook.client, "get", Mock(return_value=_hook_item()))
     monkeypatch.setattr(hook.client, "post", Mock(side_effect=responses))
-    monkeypatch.setattr(lockfile, "upsert_standalone", Mock(side_effect=OSError("read only")))
+    upsert = Mock()
+    monkeypatch.setattr(lockfile, "upsert_standalone", upsert)
 
     valid = runner.invoke(
         app,
@@ -706,9 +702,10 @@ def test_install_merges_existing_config_and_recovers_invalid_json(tmp_path, monk
         ["registry", "hook", "install", "guard", "--harness", "cursor", "--dir", str(project)],
     )
 
-    assert valid.exit_code == invalid.exit_code == 0
-    assert "Merged hook into valid.json" in valid.output
-    assert "Merged hook into invalid.json" in invalid.output
+    assert valid.exit_code == 0, valid.output
+    assert invalid.exit_code == 7
+    assert "Updated" in valid.output
+    assert "not valid JSON" in invalid.output
     merged = json.loads(valid_path.read_text(encoding="utf-8"))
     assert merged == {
         "other": True,
@@ -719,7 +716,8 @@ def test_install_merges_existing_config_and_recovers_invalid_json(tmp_path, monk
             "PostToolUse": [{"command": "post"}],
         },
     }
-    assert json.loads(invalid_path.read_text(encoding="utf-8")) == {"hooks": {"Stop": [{"command": "replacement"}]}}
+    assert invalid_path.read_text(encoding="utf-8") == "{broken"
+    upsert.assert_called_once()
 
 
 def test_install_surfaces_generation_failure_without_writing(tmp_path, monkeypatch):
@@ -807,9 +805,10 @@ def test_edit_from_file_and_parse_failures(tmp_path, monkeypatch):
     )
 
     assert valid.exit_code == 0, valid.output
-    assert missing.exit_code == broken.exit_code == 1
-    assert "File not found" in missing.output
-    assert "Invalid JSON" in broken.output
+    assert missing.exit_code == 5
+    assert broken.exit_code == 7
+    assert "not found" in missing.output
+    assert "not valid JSON" in broken.output
     put.assert_called_once_with("/api/v1/hooks/resolved/draft", valid_updates)
     post.assert_called_once_with("/api/v1/hooks/resolved/start-edit")
 
@@ -822,41 +821,47 @@ def test_edit_no_changes_conflict_and_failed_save_cancellation(monkeypatch):
     monkeypatch.setattr(hook.client, "put", put)
 
     no_changes = runner.invoke(app, ["registry", "hook", "edit", "guard"])
-    assert no_changes.exit_code == 1
-    assert "No changes specified" in no_changes.output
+    assert no_changes.exit_code == 7
+    assert "No hook changes" in no_changes.output
     post.assert_not_called()
 
-    post.side_effect = RuntimeError("409 currently being edited")
+    post.side_effect = CliError(
+        ErrorCategory.CONFLICT,
+        "The hook is currently being edited.",
+        operation="Edit hook",
+        resource="hook registry",
+    )
     conflict = runner.invoke(
         app,
         ["registry", "hook", "edit", "guard", "--description", "new"],
     )
-    assert conflict.exit_code == 1
-    assert "Cannot edit" in conflict.output
+    assert conflict.exit_code == 6
+    assert "currently being edited" in conflict.output
     put.assert_not_called()
 
-    paths = []
-
-    def post_with_failed_cancel(path):
-        paths.append(path)
-        if path.endswith("/cancel-edit"):
-            raise RuntimeError("cancel failed")
-        return {}
-
-    monkeypatch.setattr(hook.client, "post", post_with_failed_cancel)
-    monkeypatch.setattr(hook.client, "put", Mock(side_effect=RuntimeError("save failed")))
+    post.reset_mock(side_effect=True)
+    post.return_value = {}
+    monkeypatch.setattr(hook.client, "post", post)
+    monkeypatch.setattr(
+        hook.client,
+        "put",
+        Mock(
+            side_effect=CliError(
+                ErrorCategory.UNAVAILABLE,
+                "Registry unavailable.",
+                operation="Edit hook",
+                resource="hook registry",
+            )
+        ),
+    )
     failed = runner.invoke(
         app,
         ["registry", "hook", "edit", "guard", "--description", "new"],
     )
 
-    assert failed.exit_code == 1
-    assert "Failed to update" in failed.output
-    assert "save failed" in failed.output
-    assert paths == [
-        "/api/v1/hooks/resolved/start-edit",
-        "/api/v1/hooks/resolved/cancel-edit",
-    ]
+    assert failed.exit_code == 9
+    assert "Registry unavailable" in failed.output
+    post.assert_called_once_with("/api/v1/hooks/resolved/start-edit")
 
 
 def test_hook_archive_unarchive_and_confirmation_cancellation(monkeypatch):
@@ -927,3 +932,122 @@ def test_hook_co_author_commands_render_and_preserve_http_boundaries(monkeypatch
         json_data={"email": "dev@example.com"},
     )
     delete.assert_called_once_with("/api/v1/hooks/hook-1/co-authors/user-1")
+
+
+def test_hook_submit_json_is_noninteractive_and_clean(monkeypatch):
+    monkeypatch.setattr(
+        hook.client,
+        "post",
+        Mock(return_value={"id": "hook-1", "name": "guard", "status": "pending"}),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "registry",
+            "hook",
+            "submit",
+            "--name",
+            "guard",
+            "--description",
+            "Guard prompts",
+            "--event",
+            "Stop",
+            "--handler-command",
+            "guard.py",
+            "--execution-mode",
+            "sync",
+            "--output",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stderr
+    assert json.loads(result.stdout)["id"] == "hook-1"
+
+
+def test_hook_install_json_is_idempotent(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    response = {
+        "files": [{"path": "hooks/guard.py", "content": "print('guard')\n", "executable": True}],
+        "config_path": ".claude/settings.json",
+        "config_snippet": {"hooks": {"Stop": [{"command": "python hooks/guard.py"}]}},
+    }
+    monkeypatch.setattr(hook.client, "resolve_registry_reference", Mock(return_value="resolved"))
+    monkeypatch.setattr(hook.client, "get", Mock(return_value=_hook_item()))
+    monkeypatch.setattr(hook.client, "post", Mock(return_value=response))
+    upsert = Mock()
+    monkeypatch.setattr(lockfile, "upsert_standalone", upsert)
+
+    first = runner.invoke(
+        app,
+        ["registry", "hook", "install", "guard", "--harness", "claude-code", "--dir", str(project), "--output", "json"],
+    )
+    second = runner.invoke(
+        app,
+        ["registry", "hook", "install", "guard", "--harness", "claude-code", "--dir", str(project), "--output", "json"],
+    )
+
+    assert first.exit_code == second.exit_code == 0
+    assert json.loads(first.stdout)["config_path"].endswith(".claude/settings.json")
+    saved = json.loads((project / ".claude/settings.json").read_text())
+    assert saved["hooks"]["Stop"] == [{"command": "python hooks/guard.py"}]
+    assert upsert.call_count == 2
+
+
+def test_hook_install_rejects_path_traversal_before_writes(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    response = {"files": [{"path": "../escape.py", "content": "bad"}]}
+    monkeypatch.setattr(hook.client, "resolve_registry_reference", Mock(return_value="resolved"))
+    monkeypatch.setattr(hook.client, "get", Mock(return_value=_hook_item()))
+    monkeypatch.setattr(hook.client, "post", Mock(return_value=response))
+    upsert = Mock()
+    monkeypatch.setattr(lockfile, "upsert_standalone", upsert)
+
+    result = runner.invoke(
+        app,
+        ["registry", "hook", "install", "guard", "--harness", "claude-code", "--dir", str(project)],
+    )
+
+    assert result.exit_code == 7
+    assert not (tmp_path / "escape.py").exists()
+    upsert.assert_not_called()
+
+
+def test_hook_edit_json_returns_server_result(monkeypatch):
+    monkeypatch.setattr(hook.client, "resolve_registry_reference", Mock(return_value="resolved"))
+    monkeypatch.setattr(hook.client, "post", Mock(return_value={}))
+    monkeypatch.setattr(
+        hook.client,
+        "put",
+        Mock(return_value={"id": "hook-1", "name": "guard", "status": "pending"}),
+    )
+
+    result = runner.invoke(
+        app,
+        ["registry", "hook", "edit", "guard", "--description", "Updated", "--output", "json"],
+    )
+
+    assert result.exit_code == 0, result.stderr
+    assert json.loads(result.stdout)["status"] == "pending"
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["list", "--event", "Unknown"],
+        ["install", "guard", "--harness", "unknown"],
+        ["install", "guard", "--harness", "claude-code", "--platform", "plan9"],
+        ["install", "guard", "--harness", "claude-code", "--raw", "--output", "json"],
+    ],
+)
+def test_hook_validation_uses_stable_exit_code(arguments, monkeypatch):
+    get = Mock()
+    monkeypatch.setattr(hook.client, "get", get)
+
+    result = runner.invoke(app, ["registry", "hook", *arguments])
+
+    assert result.exit_code == 7
+    get.assert_not_called()
