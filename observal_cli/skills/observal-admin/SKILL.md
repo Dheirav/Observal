@@ -18,7 +18,8 @@ Core administration requires `admin`. Review commands also work for global revie
 2. Pass `--output json` for structured finite results.
 3. Pass `--force` on destructive JSON commands so they never prompt.
 4. If permission is denied, run `observal auth whoami --output json`.
-5. Never repeat generated passwords, SCIM tokens, submitted headers, environment values, or audit content unless the user explicitly needs that secret at creation time.
+5. Never repeat generated passwords, SCIM tokens, submitted headers, database URLs, environment values, or audit content unless the user explicitly needs that secret at creation time.
+6. Local server and migration commands use shell, Docker, filesystem, and database authority; they do not require an API role.
 
 ## Procedure: Settings and Diagnostics
 
@@ -90,6 +91,33 @@ observal admin scim-token-revoke TOKEN_UUID --force --output json
 ```
 
 Every SAML update requires the entity ID, SSO URL, and certificate. SCIM creation returns the bearer token once, treat the entire result as secret.
+
+## Procedure: Local Server
+
+```bash
+observal server status --output json
+observal server start --background --output json
+observal server logs api --lines 100 --output json
+observal server upgrade --dry-run --output json
+observal server upgrade --version VERSION --force --output json
+observal server rollback --force --output json
+observal server versions --output json
+```
+
+JSON start and restart require `--background`. Reset, upgrade, and rollback require `--force` for JSON mutation. Rollback restores PostgreSQL and Docker images, not ClickHouse telemetry.
+
+## Procedure: Database Migration
+
+```bash
+observal server migrate export --file registry.tar.gz --output json
+observal server migrate validate --archive registry.tar.gz --output json
+observal server migrate import --archive registry.tar.gz --output json
+observal server migrate export-telemetry --manifest registry.manifest.json --output-dir telemetry-export --output json
+observal server migrate validate-telemetry --input-dir telemetry-export --output json
+observal server migrate import-telemetry --input-dir telemetry-export --output json
+```
+
+Source commands read `DATABASE_URL` and `CLICKHOUSE_URL`; target commands read `TARGET_DATABASE_URL` and `TARGET_CLICKHOUSE_URL`. PostgreSQL export uses `--file`; `--output` always selects table or JSON. ClickHouse export requires a new destination directory.
 
 ## Output Contract
 

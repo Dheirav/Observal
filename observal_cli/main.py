@@ -261,16 +261,10 @@ from observal_cli.cmd_reconcile_cli import register_reconcile
 register_reconcile(app)
 
 # Server management (embedded + Docker)
-try:
-    from observal_cli.cmd_server import server_app
+from observal_cli.cmd_server import server_app
 
-    server_app.add_typer(migrate_app, name="migrate")
-    app.add_typer(server_app, name="server")
-except ImportError:
-    # Server dependencies are optional, but the documented migration path stays stable.
-    fallback_server_app = typer.Typer(help="Server migration tools")
-    fallback_server_app.add_typer(migrate_app, name="migrate")
-    app.add_typer(fallback_server_app, name="server")
+server_app.add_typer(migrate_app, name="migrate")
+app.add_typer(server_app, name="server")
 
 
 def _show_update_banner() -> None:

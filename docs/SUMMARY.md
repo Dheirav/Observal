@@ -49,6 +49,7 @@
 * [observal self](cli/self.md)
 * [observal registry prompt](cli/prompt.md)
 * [observal server](cli/server.md)
+  * [observal server migrate](cli/migrate.md)
 * [observal registry skill](cli/skill.md)
 
 ## Self-Hosting
