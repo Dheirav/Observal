@@ -80,14 +80,14 @@ observal scan --harness kiro
 ---
 ## Procedure: Outdated
 
-Check for newer versions of installed agents and components.
+Check pulled agents and separately installed MCPs, skills, and hooks for newer registry versions.
 
 ```bash
 observal outdated
 observal outdated --harness claude-code --output json --no-report
 ```
 
-Reads `~/.observal/lockfile.json` and compares each pinned version against the registry's latest. Reports a table of outdated items with current vs latest version. Findings also land in your inbox as `update_available` items so they survive between runs; `--no-report` keeps the check purely local. Reporting is best-effort, so the table prints either way.
+Reads `~/.observal/lockfile.json` and compares each supported pin against the active registry. JSON returns `items`, `summary`, and `report`; use it for automation. Findings also land in your inbox as `update_available` items; `--no-report` suppresses that write but still reads the registry. Reporting is best-effort and its status is always exposed.
 
 ---
 ## Procedure: Scan harnesses

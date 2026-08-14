@@ -11,7 +11,7 @@ Every command available in the installed CLI. This block is generated from the T
 
 **Root commands**
 
-- `observal outdated`: Show installed components that have newer versions available.
+- `observal outdated`: Show installed agents and standalone components with their registry status.
 - `observal scan`: Show a read-only inventory of your local harness setup.
 
 **`observal admin`**: Admin commands
