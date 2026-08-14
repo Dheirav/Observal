@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 name: observal-ops
 command: observal
-description: View traces, spans, metrics, feedback, telemetry health, and agent insight reports, including suggestions that reuse components already in the registry. Use when the user wants to see traces, check metrics, view top items, submit ratings, diagnose telemetry, or discuss how an agent is doing.
+description: View current sessions, Registry rankings and feedback, telemetry health, logs, and Agent insight reports, including suggestions that reuse existing components. Use when the user wants to inspect sessions, view top items, submit ratings, diagnose telemetry, read logs, or discuss how an agent is doing.
 version: 2.2.0
 owner: observal
 ---
@@ -21,15 +21,12 @@ owner: observal
 ## Procedure: Observe
 
 ```bash
-observal ops metrics ITEM_NAME --type agent --output json
-observal ops metrics ITEM_NAME --type mcp --watch
 observal ops top --type agent --output json
 observal ops top --type mcp --output json
 observal ops traces --limit 20 --output json
 observal ops traces --platform kiro --days 7 --output json
-observal ops traces --turn --limit 5
-observal ops traces --span --limit 3
-observal ops spans TRACE_ID --output json
+observal ops traces --turn --limit 5 --output json
+observal ops traces --span --limit 3 --output json
 observal ops feedback ITEM_NAME --type mcp --output json
 ```
 
@@ -38,24 +35,36 @@ observal ops feedback ITEM_NAME --type mcp --output json
 ## Procedure: Rate Component
 
 ```bash
-observal ops rate MCP_NAME --stars 5 --type mcp --comment 'Worked great'
-observal ops rate AGENT_NAME --stars 4 --type agent
+observal ops rate MCP_NAME --stars 5 --type mcp --comment 'Worked great' --output json
+observal ops rate AGENT_NAME --stars 4 --type agent --output json
+observal ops rate-update MCP_NAME --type mcp --stars 4 --output json
+observal ops rate-delete MCP_NAME --type mcp --yes --output json
 ```
 
-`--stars` (1-5) and `--type` are required. `--comment` is optional.
+`--stars` accepts 1 through 5. `--comment` is optional. Feedback deletion requires `--yes` in JSON mode.
 
 ---
 
 ## Procedure: Telemetry Health
 
 ```bash
-observal ops telemetry status
-observal ops telemetry test
+observal ops telemetry status --output json
 ```
 
-`status` is the reliable check: it queries server event counts and local SQLite buffer. `test` may return 404 on newer servers (legacy endpoint). If `status` shows events flowing, telemetry is healthy.
+`status` queries server event counts and the local SQLite outbox. The removed synthetic test command is not part of the current session ingestion pipeline. If status shows events flowing, telemetry is healthy.
 
 **Diagnosis:** status OK → healthy. No events → check `observal auth status`. Server reachable but no events → hooks not installed, suggest `observal doctor`.
+
+---
+
+## Procedure: Logs
+
+```bash
+observal ops logs --no-follow --output json
+observal ops logs --remote --level WARNING --output json
+```
+
+JSON log following uses JSON Lines, one object per entry. Remote logs require admin access. Never repeat access tokens or secrets found in log content.
 
 ---
 
@@ -107,7 +116,7 @@ Section meanings:
 If no completed report exists, generate one:
 
 ```bash
-observal ops insights generate AGENT_NAME --period 14 --wait
+observal ops insights generate AGENT_NAME --period 14 --wait --output json
 ```
 
 For versioned analysis, request or infer versions from `list`, then generate or show version scoped reports:
@@ -154,7 +163,7 @@ To act on one:
 
 ```bash
 observal registry skill show NAMESPACE/SLUG --output json
-observal agent add skill COMPONENT_UUID
+observal agent add skill COMPONENT_UUID --output json
 ```
 
 `observal agent add` writes to a local `observal-agent.yaml`, so it only applies when the user is

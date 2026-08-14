@@ -139,6 +139,11 @@ def output_json(data: Any) -> None:
     print(_json.dumps(data, default=str, ensure_ascii=False, indent=2))
 
 
+def output_json_line(data: Any) -> None:
+    """Write one compact JSON Lines record for a streaming command."""
+    print(_json.dumps(data, default=str, ensure_ascii=False, separators=(",", ":")))
+
+
 def output_table(table: Table) -> None:
     console.print(table)
 

@@ -72,12 +72,11 @@ Hooks have an extra `sync` subcommand. Prompts have an extra `render` subcommand
 ### Operations
 
 ```
-observal ops review list           # pending submissions
-observal ops review approve <id>   # approve
-observal ops review reject <id> --reason "..."  # reject
-observal ops telemetry status      # check telemetry flow
-observal ops telemetry test        # send a test event
-observal ops metrics <id>          # metrics for an MCP or agent
+observal ops telemetry status --output json       # check telemetry flow
+observal ops top --type agent --output json        # most-downloaded agents
+observal ops traces --output json                   # current session summaries
+observal ops traces --span --output json            # current session details
+observal ops insights list <agent> --output json    # agent insight reports
 ```
 
 ### Utilities

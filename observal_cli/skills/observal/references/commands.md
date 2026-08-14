@@ -103,22 +103,19 @@ Every command available in the installed CLI. This block is generated from the T
 - `observal inbox show`: Show one item with its full action history.
 - `observal inbox unread`: Mark an item unread again.
 
-**`observal ops`**: Observability and operational commands (traces, telemetry, dashboard, feedback)
+**`observal ops`**: Observability and operational commands (sessions, telemetry, rankings, feedback, insights)
 
 - `observal ops insights`: Agent insight reports
   - `observal ops insights generate`: Trigger generation of a new insight report.
   - `observal ops insights list`: List insight reports for an agent.
   - `observal ops insights show`: Show an insight report with pretty-printed narrative.
 - `observal ops logs`: Live log viewer (open in a separate tab)
-- `observal ops telemetry`: Telemetry commands
+- `observal ops telemetry`: Telemetry health commands
   - `observal ops telemetry status`: Check telemetry data flow status.
-  - `observal ops telemetry test`: Send a test telemetry event.
 - `observal ops feedback`: Show feedback for an MCP server or agent.
-- `observal ops metrics`: Show metrics for an MCP server or agent.
 - `observal ops rate`: Rate an MCP server, agent, or component.
 - `observal ops rate-delete`: Delete your review for an item.
 - `observal ops rate-update`: Update your existing review for an item.
-- `observal ops spans`: List spans for a trace.
 - `observal ops top`: Show top MCP servers or agents by usage.
 - `observal ops traces`: List recent traces (sessions).
 
