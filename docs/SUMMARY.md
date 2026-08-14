@@ -34,6 +34,7 @@
 * [observal scan](cli/scan.md)
 * [observal agent pull](cli/pull.md)
 * [observal registry](cli/registry.md)
+* [observal registry recommend](cli/recommend.md)
 * [observal registry version](cli/component.md)
 * [observal registry models](cli/models.md)
 * [observal agent](cli/agent.md)
@@ -43,7 +44,7 @@
 * [observal self](cli/self.md)
 * [observal registry prompt](cli/prompt.md)
 * [observal server](cli/server.md)
-* [observal skill](cli/skill.md)
+* [observal registry skill](cli/skill.md)
 * [observal uninstall](cli/uninstall.md)
 
 ## Self-Hosting

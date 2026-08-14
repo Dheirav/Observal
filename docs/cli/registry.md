@@ -775,3 +775,9 @@ observal registry sandbox edit @env --runtime-type docker --version 2.0.0 --outp
 Use `observal registry version publish` and `observal registry version list` for all five component types. Publication supports direct JSON results; history supports explicit pagination.
 
 See [`observal registry version`](component.md) for the complete contract.
+
+## Personalized recommendations
+
+Use `observal registry recommend` to rank visible components against the signed-in user's sessions and to dismiss or mark recommendations as installed.
+
+See [`observal registry recommend`](recommend.md) for the JSON schema and feedback actions.
