@@ -480,7 +480,7 @@ def test_root_group_enforces_error_contract_for_all_commands():
                 walk(child)
 
     walk(root)
-    assert len(executable) == 186
+    assert len(executable) == 185
 
 
 @pytest.mark.parametrize(

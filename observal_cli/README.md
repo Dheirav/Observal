@@ -99,7 +99,6 @@ observal doctor patch --harness <harness>                    # install hooks for
 observal use <profile>                               # swap harness config from a profile
 observal doctor                                      # diagnose harness/Observal issues
 observal config show                                 # show current config
-observal uninstall                                   # tear down Docker, remove config
 ```
 
 ## Supported harnesses
@@ -149,7 +148,6 @@ observal_cli/
 ├── cmd_doctor.py            # Doctor command
 ├── cmd_ops.py               # Operations commands
 ├── cmd_profile.py           # Profile swapping
-├── cmd_uninstall.py         # Uninstall command
 ├── sandbox_runner.py        # observal-sandbox-run entrypoint
 └── hooks/                   # Telemetry hook scripts
 ```

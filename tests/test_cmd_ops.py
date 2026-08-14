@@ -1125,16 +1125,22 @@ def test_do_install_delegates_to_upgrade_executor(cli, monkeypatch):
     monkeypatch.setattr(
         upgrade_executor,
         "execute",
-        lambda info, target, direction, spinner: calls.append((info, target, direction, spinner)),
+        lambda info, target, direction, progress, interactive: calls.append(
+            (info, target, direction, progress, interactive)
+        ),
     )
 
     ops._do_install(install, "2.0.0", "upgrade")
 
-    assert calls == [(install, "2.0.0", "upgrade", ops.spinner)]
+    assert calls == [(install, "2.0.0", "upgrade", ops.spinner, True)]
 
 
-def install_info(method: InstallMethod = InstallMethod.UV_TOOL, managed_by: str | None = "uv") -> InstallInfo:
-    return InstallInfo(method=method, path=Path("/mock/observal"), writable=True, managed_by=managed_by)
+def install_info(
+    method: InstallMethod = InstallMethod.UV_TOOL,
+    managed_by: str | None = "uv",
+    path: Path | None = None,
+) -> InstallInfo:
+    return InstallInfo(method=method, path=path or Path("/mock/observal"), writable=True, managed_by=managed_by)
 
 
 def test_upgrade_rejects_invalid_versions(cli, monkeypatch):
@@ -1143,11 +1149,11 @@ def test_upgrade_rejects_invalid_versions(cli, monkeypatch):
     monkeypatch.setattr(version_check, "get_current_version", lambda: "1.0.0")
     monkeypatch.setattr(install_detector, "detect", lambda: install_info())
 
-    with pytest.raises(typer.Exit) as exc_info:
+    with pytest.raises(typer.Exit) as raised:
         ops.upgrade("not-a-version", False, True)
 
-    assert exc_info.value.exit_code == 1
-    assert "Invalid version" in cli.text()
+    assert raised.value.exit_code == 7
+    assert "Invalid target version" in cli.text()
 
 
 def test_upgrade_reports_release_lookup_failures(cli, monkeypatch):
@@ -1157,11 +1163,11 @@ def test_upgrade_reports_release_lookup_failures(cli, monkeypatch):
     monkeypatch.setattr(install_detector, "detect", lambda: install_info())
     monkeypatch.setattr(version_check, "_fetch_from_github", lambda include_pre: None)
 
-    with pytest.raises(typer.Exit) as exc_info:
+    with pytest.raises(typer.Exit) as raised:
         ops.upgrade(None, True, True)
 
-    assert exc_info.value.exit_code == 1
-    assert "Failed to fetch latest release" in cli.text()
+    assert raised.value.exit_code == 9
+    assert "Could not fetch" in cli.text()
 
 
 def test_upgrade_honors_declined_confirmation(cli, monkeypatch):
@@ -1186,14 +1192,14 @@ def test_upgrade_reports_lock_contention(cli, monkeypatch):
     monkeypatch.setattr(install_detector, "detect", lambda: install_info())
     monkeypatch.setattr(upgrade_lock, "acquire_lock", raises(UpgradeLockError("busy")))
 
-    with pytest.raises(typer.Exit) as exc_info:
+    with pytest.raises(typer.Exit) as raised:
         ops.upgrade("1.1.0", False, True)
 
-    assert exc_info.value.exit_code == 1
-    assert "busy" in cli.text()
+    assert raised.value.exit_code == 6
+    assert "already running" in cli.text()
 
 
-def test_upgrade_installs_and_releases_the_lock_with_nonstandard_current_version(cli, monkeypatch):
+def test_upgrade_installs_releases_lock_and_returns_json(cli, monkeypatch):
     from observal_cli import install_detector, upgrade_lock, version_check
 
     calls = []
@@ -1202,15 +1208,30 @@ def test_upgrade_installs_and_releases_the_lock_with_nonstandard_current_version
     monkeypatch.setattr(install_detector, "detect", lambda: info)
     monkeypatch.setattr(upgrade_lock, "acquire_lock", lambda scope: calls.append(("acquire", scope)) or "lock")
     monkeypatch.setattr(upgrade_lock, "release_lock", lambda lock: calls.append(("release", lock)))
-    monkeypatch.setattr(ops, "_do_install", lambda actual, target, direction: calls.append((actual, target, direction)))
+    monkeypatch.setattr(
+        ops,
+        "_do_install",
+        lambda actual, target, direction, output: calls.append((actual, target, direction, output)),
+    )
 
-    ops.upgrade("1.2.0", False, True)
+    ops.upgrade("1.2.0", False, True, "json")
 
     assert calls == [
         ("acquire", "cli"),
-        (info, "1.2.0", "upgrade"),
+        (info, "1.2.0", "upgrade", "json"),
         ("release", "lock"),
     ]
+    assert cli.json == [
+        {
+            "action": "upgrade",
+            "status": "completed",
+            "from_version": "development",
+            "to_version": "1.2.0",
+            "install_method": "uv_tool",
+            "path": "/mock/observal",
+        }
+    ]
+    assert cli.lines == []
 
 
 def test_downgrade_reports_empty_release_lists(cli, monkeypatch):
@@ -1219,49 +1240,53 @@ def test_downgrade_reports_empty_release_lists(cli, monkeypatch):
     monkeypatch.setattr(version_check, "get_current_version", lambda: "2.0.0")
     monkeypatch.setattr(version_check, "fetch_all_releases", lambda: [])
 
-    with pytest.raises(typer.Exit) as exc_info:
+    with pytest.raises(typer.Exit) as raised:
         ops.downgrade(None, True, True)
 
-    assert exc_info.value.exit_code == 1
-    assert "Failed to fetch releases" in cli.text()
+    assert raised.value.exit_code == 9
+    assert "Could not fetch" in cli.text()
 
 
-def test_downgrade_list_marks_the_current_release(cli, monkeypatch):
+def test_downgrade_list_supports_table_and_json(cli, monkeypatch):
     from observal_cli import version_check
 
-    tables = []
+    releases = [
+        {"version": "2.0.0", "published_at": "2026-06-02"},
+        {"version": "1.9.0", "published_at": "2026-06-01"},
+    ]
     monkeypatch.setattr(version_check, "get_current_version", lambda: "2.0.0")
-    monkeypatch.setattr(
-        version_check,
-        "fetch_all_releases",
-        lambda: [
-            {"version": "2.0.0", "published_at": "2026-06-02"},
-            {"version": "1.9.0", "published_at": "2026-06-01"},
-        ],
-    )
-    monkeypatch.setattr(Console, "print", lambda self, table: tables.append(table))
+    monkeypatch.setattr(version_check, "fetch_all_releases", lambda: releases)
 
-    with pytest.raises(typer.Exit) as exc_info:
-        ops.downgrade(None, True, True)
+    ops.downgrade(None, True, True, "table")
+    ops.downgrade(None, True, True, "json")
 
-    assert exc_info.value.exit_code == 0
-    assert tables[0].columns[0]._cells == ["2.0.0", "1.9.0"]
-    assert tables[0].columns[2]._cells == ["← current", ""]
+    table = cli.console.renderables[0]
+    assert table.columns[0]._cells == ["2.0.0", "1.9.0"]
+    assert table.columns[2]._cells == ["← current", ""]
+    assert cli.json == [
+        {
+            "current_version": "2.0.0",
+            "items": [
+                {**releases[0], "current": True},
+                {**releases[1], "current": False},
+            ],
+        }
+    ]
 
 
 @pytest.mark.parametrize(
     ("version", "message"),
-    [("invalid", "Invalid version"), ("0.9.0", "Cannot downgrade below")],
+    [("invalid", "Invalid target version"), ("0.9.0", "Cannot downgrade below")],
 )
 def test_downgrade_validates_target_versions(cli, monkeypatch, version, message):
     from observal_cli import version_check
 
     monkeypatch.setattr(version_check, "get_current_version", lambda: "2.0.0")
 
-    with pytest.raises(typer.Exit) as exc_info:
+    with pytest.raises(typer.Exit) as raised:
         ops.downgrade(version, False, True)
 
-    assert exc_info.value.exit_code == 1
+    assert raised.value.exit_code == 7
     assert message in cli.text()
 
 
@@ -1269,16 +1294,12 @@ def test_downgrade_blocks_managed_installations(cli, monkeypatch):
     from observal_cli import install_detector, version_check
 
     monkeypatch.setattr(version_check, "get_current_version", lambda: "2.0.0")
-    monkeypatch.setattr(
-        install_detector,
-        "detect",
-        lambda: install_info(InstallMethod.SYSTEM_PACKAGE, "apt"),
-    )
+    monkeypatch.setattr(install_detector, "detect", lambda: install_info(InstallMethod.SYSTEM_PACKAGE, "apt"))
 
-    with pytest.raises(typer.Exit) as exc_info:
+    with pytest.raises(typer.Exit) as raised:
         ops.downgrade("1.10.4", False, True)
 
-    assert exc_info.value.exit_code == 1
+    assert raised.value.exit_code == 6
     assert "managed by apt" in cli.text()
 
 
@@ -1300,11 +1321,11 @@ def test_downgrade_reports_lock_contention(cli, monkeypatch):
     monkeypatch.setattr(install_detector, "detect", lambda: install_info())
     monkeypatch.setattr(upgrade_lock, "acquire_lock", raises(UpgradeLockError("busy")))
 
-    with pytest.raises(typer.Exit) as exc_info:
+    with pytest.raises(typer.Exit) as raised:
         ops.downgrade("1.10.4", False, True)
 
-    assert exc_info.value.exit_code == 1
-    assert "busy" in cli.text()
+    assert raised.value.exit_code == 6
+    assert "already running" in cli.text()
 
 
 def test_downgrade_installs_when_current_version_is_nonstandard(cli, monkeypatch):
@@ -1316,88 +1337,89 @@ def test_downgrade_installs_when_current_version_is_nonstandard(cli, monkeypatch
     monkeypatch.setattr(install_detector, "detect", lambda: info)
     monkeypatch.setattr(upgrade_lock, "acquire_lock", lambda scope: "lock")
     monkeypatch.setattr(upgrade_lock, "release_lock", lambda lock: calls.append(("release", lock)))
-    monkeypatch.setattr(ops, "_do_install", lambda actual, target, direction: calls.append((actual, target, direction)))
+    monkeypatch.setattr(
+        ops,
+        "_do_install",
+        lambda actual, target, direction, output: calls.append((actual, target, direction, output)),
+    )
 
     ops.downgrade("1.10.4", False, True)
 
-    assert calls == [(info, "1.10.4", "downgrade"), ("release", "lock")]
+    assert calls == [(info, "1.10.4", "downgrade", "table"), ("release", "lock")]
 
 
-def backup_root(monkeypatch, exists: bool):
-    backup = SimpleNamespace(exists=lambda: exists)
-
-    class Root:
-        def __truediv__(self, part):
-            assert part == "bin"
-            return Bin()
-
-    class Bin:
-        def __truediv__(self, part):
-            assert part == "observal.prev"
-            return backup
-
-    monkeypatch.setattr(ops.config, "CONFIG_DIR", Root())
+def backup_path(monkeypatch, tmp_path: Path, exists: bool) -> Path:
+    monkeypatch.setattr(ops.config, "CONFIG_DIR", tmp_path)
+    backup = tmp_path / "bin" / "observal.prev"
+    if exists:
+        backup.parent.mkdir(parents=True)
+        backup.write_bytes(b"previous binary")
     return backup
 
 
-def test_rollback_reports_missing_backups(cli, monkeypatch):
+def test_rollback_reports_missing_backups(cli, monkeypatch, tmp_path):
     from observal_cli import install_detector
 
-    backup_root(monkeypatch, False)
+    backup_path(monkeypatch, tmp_path, False)
     monkeypatch.setattr(install_detector, "detect", lambda: install_info(InstallMethod.BINARY, "curl"))
 
-    with pytest.raises(typer.Exit) as exc_info:
+    with pytest.raises(typer.Exit) as raised:
         ops.rollback()
 
-    assert exc_info.value.exit_code == 1
-    assert "No backup found" in cli.text()
+    assert raised.value.exit_code == 5
+    assert "No CLI rollback backup" in cli.text()
 
 
-def test_rollback_rejects_non_binary_installs(cli, monkeypatch):
+def test_rollback_rejects_non_binary_installs(cli, monkeypatch, tmp_path):
     from observal_cli import install_detector
 
-    backup_root(monkeypatch, True)
+    backup_path(monkeypatch, tmp_path, True)
     monkeypatch.setattr(install_detector, "detect", lambda: install_info())
 
-    with pytest.raises(typer.Exit) as exc_info:
+    with pytest.raises(typer.Exit) as raised:
         ops.rollback()
 
-    assert exc_info.value.exit_code == 1
-    assert "only supported for binary installs" in cli.text()
+    assert raised.value.exit_code == 6
+    assert "only supported for standalone binary" in cli.text()
 
 
-def test_rollback_honors_declined_confirmation(cli, monkeypatch):
+def test_rollback_honors_declined_confirmation(cli, monkeypatch, tmp_path):
     from observal_cli import install_detector
 
-    backup_root(monkeypatch, True)
-    monkeypatch.setattr(install_detector, "detect", lambda: install_info(InstallMethod.BINARY, "curl"))
+    backup_path(monkeypatch, tmp_path, True)
+    monkeypatch.setattr(
+        install_detector,
+        "detect",
+        lambda: install_info(InstallMethod.BINARY, "curl", tmp_path / "observal"),
+    )
     monkeypatch.setattr(ops.typer, "confirm", lambda prompt: False)
 
     with pytest.raises(typer.Abort):
         ops.rollback()
 
 
-def test_rollback_copies_backup_and_restores_executable_mode(cli, monkeypatch):
-    import os
-    import shutil
+def test_rollback_atomically_restores_binary_and_returns_json(cli, monkeypatch, tmp_path):
+    from observal_cli import install_detector, upgrade_lock
 
-    from observal_cli import install_detector
-
-    backup = backup_root(monkeypatch, True)
-    info = install_info(InstallMethod.BINARY, "curl")
+    backup = backup_path(monkeypatch, tmp_path, True)
+    target = tmp_path / "observal"
+    target.write_bytes(b"current binary")
+    monkeypatch.setattr(
+        install_detector,
+        "detect",
+        lambda: install_info(InstallMethod.BINARY, "curl", target),
+    )
     calls = []
-    monkeypatch.setattr(install_detector, "detect", lambda: info)
-    monkeypatch.setattr(ops.typer, "confirm", lambda prompt: True)
-    monkeypatch.setattr(shutil, "copy2", lambda source, target: calls.append(("copy", source, target)))
-    monkeypatch.setattr(os, "chmod", lambda target, mode: calls.append(("chmod", target, mode)))
+    monkeypatch.setattr(upgrade_lock, "acquire_lock", lambda scope: calls.append(("acquire", scope)) or "lock")
+    monkeypatch.setattr(upgrade_lock, "release_lock", lambda lock: calls.append(("release", lock)))
 
-    ops.rollback()
+    ops.rollback(True, "json")
 
-    assert calls == [
-        ("copy", str(backup), str(info.path)),
-        ("chmod", str(info.path), 0o755),
-    ]
-    assert "Rolled back to previous version" in cli.text()
+    assert target.read_bytes() == backup.read_bytes()
+    assert target.stat().st_mode & 0o777 == 0o755
+    assert calls == [("acquire", "cli"), ("release", "lock")]
+    assert cli.json == [{"action": "rollback", "status": "completed", "backup": str(backup), "path": str(target)}]
+    assert cli.lines == []
 
 
 @pytest.mark.parametrize(
@@ -1422,6 +1444,80 @@ def test_status_reports_update_availability(cli, monkeypatch, release, newer, me
     assert "Version:  [bold]v1.0.0" in output
     assert "uv_tool" in output
     assert message in output
+
+
+def test_self_status_json_and_command_inventory(cli, monkeypatch):
+    from observal_cli import install_detector, version_check
+
+    monkeypatch.setattr(version_check, "get_current_version", lambda: "1.0.0")
+    monkeypatch.setattr(version_check, "_fetch_from_github", lambda: {"latest_version": "2.0.0"})
+    monkeypatch.setattr(version_check, "_is_newer", lambda latest, current: True)
+    monkeypatch.setattr(install_detector, "detect", lambda: install_info())
+
+    ops.status("json")
+
+    assert cli.json == [
+        {
+            "current_version": "1.0.0",
+            "install_method": "uv_tool",
+            "path": "/mock/observal",
+            "writable": True,
+            "managed_by": "uv",
+            "github_available": True,
+            "latest_version": "2.0.0",
+            "update_available": True,
+        }
+    ]
+    assert cli.lines == []
+
+    command = get_command(cli_app).commands["self"]
+    assert set(command.commands) == {"upgrade", "downgrade", "rollback", "status"}
+    assert all(any(parameter.name == "output" for parameter in child.params) for child in command.commands.values())
+
+
+def test_self_json_mutations_require_force(cli, monkeypatch, tmp_path):
+    from observal_cli import install_detector, version_check
+
+    monkeypatch.setattr(version_check, "get_current_version", lambda: "2.0.0")
+    monkeypatch.setattr(install_detector, "detect", lambda: install_info())
+
+    with pytest.raises(typer.Exit) as upgrade_error:
+        ops.upgrade("3.0.0", False, False, "json")
+    with pytest.raises(typer.Exit) as downgrade_error:
+        ops.downgrade("1.10.4", False, False, "json")
+
+    backup_path(monkeypatch, tmp_path, True)
+    monkeypatch.setattr(
+        install_detector,
+        "detect",
+        lambda: install_info(InstallMethod.BINARY, "curl", tmp_path / "observal"),
+    )
+    with pytest.raises(typer.Exit) as rollback_error:
+        ops.rollback(False, "json")
+
+    assert [upgrade_error.value.exit_code, downgrade_error.value.exit_code, rollback_error.value.exit_code] == [7, 7, 7]
+    assert cli.lines == [
+        "[red]JSON mode cannot prompt before upgrading the CLI.[/red]",
+        "[red]JSON mode cannot prompt before downgrading the CLI.[/red]",
+        "[red]JSON mode cannot prompt before rolling back the CLI.[/red]",
+    ]
+
+
+def test_self_json_install_failure_suppresses_executor_output(cli, monkeypatch):
+    from observal_cli import upgrade_executor
+
+    def fail_install(*args, **kwargs):
+        print("sensitive installer detail")
+        raise typer.Exit(1)
+
+    monkeypatch.setattr(upgrade_executor, "execute", fail_install)
+
+    with pytest.raises(typer.Exit) as raised:
+        ops._do_install(object(), "2.0.0", "upgrade", "json")
+
+    assert raised.value.exit_code == 9
+    assert "sensitive installer detail" not in cli.text()
+    assert cli.lines == ["[red]CLI upgrade failed.[/red]"]
 
 
 def test_every_remaining_ops_workflow_has_output_and_dead_commands_are_removed():

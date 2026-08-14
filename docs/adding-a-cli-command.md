@@ -24,7 +24,7 @@ Do not add a separate example flag, a new output mode, a command-specific error 
 
 Use the existing Typer application for the relevant domain. Register new top-level groups in `observal_cli/main.py` only when no existing group fits.
 
-Canonical paths matter. Verify the final path with the CLI help tree before documenting it. For example, use `observal agent pull` and `observal self uninstall`, not historical top-level aliases.
+Canonical paths matter. Verify the final path with the CLI help tree before documenting it. For example, use `observal agent pull` and `observal doctor support`, not historical top-level aliases.
 
 When adding a command changes the command inventory, update the executable-path assertion in `tests/test_cli_errors.py`.
 

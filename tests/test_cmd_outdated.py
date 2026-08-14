@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 import typer
+from click import unstyle
 from typer.testing import CliRunner
 
 from observal_cli import cmd_outdated
@@ -77,13 +78,15 @@ def _error(category: ErrorCategory, *, request_id: str | None = None) -> CliErro
     )
 
 
-def test_help_has_canonical_examples(cli: typer.Typer) -> None:
+def test_help_has_canonical_examples(cli: typer.Typer, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("COLUMNS", "120")
     result = CliRunner().invoke(cli, ["outdated", "--help"])
+    output = unstyle(result.output)
 
     assert result.exit_code == 0
-    assert "observal outdated" in result.output
-    assert "observal outdated --harness claude-code" in result.output
-    assert "observal outdated --output json --no-report" in result.output
+    assert "observal outdated" in output
+    assert "observal outdated --harness claude-code" in output
+    assert "observal outdated --output json --no-report" in output
 
 
 def test_invalid_output_mode_is_a_usage_error(cli: typer.Typer) -> None:
