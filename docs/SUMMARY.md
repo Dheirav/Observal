@@ -40,6 +40,7 @@
 * [observal registry version](cli/component.md)
 * [observal registry models](cli/models.md)
 * [observal agent](cli/agent.md)
+* [observal team](cli/team.md)
 * [observal ops](cli/ops.md)
 * [observal admin](cli/admin.md)
 * [observal doctor](cli/doctor.md)

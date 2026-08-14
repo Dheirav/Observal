@@ -26,6 +26,7 @@ Complete reference for the `observal` CLI. Every subcommand has its own page; th
 | [`observal registry version`](component.md)                                                | Publish and inspect component versions                                                |
 | [`observal registry models`](models.md)                                                    | Inspect packaged harness model catalogs                                               |
 | [`observal agent`](agent.md)                                                               | Create, install, and manage agents                                                     |
+| [`observal team`](team.md)                                                                 | Manage teamspaces, members, join requests, and invitations                            |
 | [`observal ops`](ops.md)                                                                   | Observability and operations (sessions, events, metrics, feedback)                    |
 | [`observal admin`](admin.md)                                                               | Admin operations (settings, users, review, security)                                  |
 | [`observal support`](https://github.com/Observal/Observal/blob/main/docs/cli/support.md) | Generate and inspect diagnostic support bundles                                       |

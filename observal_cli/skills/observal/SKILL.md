@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0
 name: observal
 command: observal
-description: "Core Observal CLI operations: pull agents into your harness, scan installed components, diagnose and patch harness configs, authenticate, manage CLI settings, work through Inbox, get components recommended for you, and discuss agent insights. Use when the user wants to install an agent, check setup, login, configure the CLI, review their work feed, ask what they should install, or ask how an agent is doing."
+description: "Core Observal CLI operations: pull agents, scan installed components, diagnose harness configs, authenticate, manage CLI settings and teamspaces, work through Inbox, get recommendations, and discuss agent insights. Use when the user wants to install an agent, check setup, login, configure the CLI, manage a team or invitation, review their work feed, ask what to install, or ask how an agent is doing."
 version: 2.5.0
 owner: observal
 ---
@@ -173,10 +173,12 @@ Never place a password directly in command arguments. JSON credential login requ
 ## Procedure: Teamspaces
 
 ```bash
-observal team create 'Platform Tools' --handle platform-tools -d '...'  # reviewer+; creator=owner; handle reserved vs usernames
-observal team members list HANDLE_OR_ID; add|remove HANDLE_OR_ID USER [--role ROLE]
-observal team delete|leave HANDLE_OR_ID                          # owner/admin; last owner protected
+observal team list --output json; observal team show HANDLE --output json
+observal team create 'Platform Tools' --handle platform-tools --visibility private --output json
+observal team members add HANDLE @USER --role member --output json; observal team members list HANDLE --output json
+observal team requests HANDLE --status pending --output json; observal team invite create HANDLE --output json
 ```
+Use `--yes --output json` for delete, leave, member removal, and invite revocation. Treat created invite tokens and URLs as secrets.
 
 ---
 
