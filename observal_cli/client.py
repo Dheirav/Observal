@@ -27,6 +27,7 @@ _version_enforced: bool = False
 
 # Subcommands exempt from version enforcement (user needs these to fix mismatches)
 _EXEMPT_SUBCOMMANDS = frozenset({"self", "server"})
+_QueryParams = dict | list[tuple[str, str]]
 
 
 def _get_cli_version() -> str:
@@ -263,7 +264,7 @@ def _request_with_retry(
     url: str,
     headers: dict,
     *,
-    params: dict | None = None,
+    params: _QueryParams | None = None,
     json: object | None = None,
 ) -> httpx.Response:
     """Execute HTTP with transient retries for GET requests only.
@@ -395,14 +396,15 @@ def _request(
     *,
     operation: str,
     resource: str,
-    params: dict | None = None,
+    params: _QueryParams | None = None,
     json_data: object | None = None,
+    send_json: bool = False,
 ) -> httpx.Response:
     base, headers = _client()
     request_kwargs: dict = {}
     if params is not None:
         request_kwargs["params"] = params
-    if json_data is not None:
+    if json_data is not None or send_json:
         request_kwargs["json"] = json_data
     try:
         return _request_with_retry(method, f"{base}{path}", headers, **request_kwargs)
@@ -447,8 +449,9 @@ def request_json(
     method: str,
     path: str,
     *,
-    params: dict | None = None,
+    params: _QueryParams | None = None,
     json_data: object | None = None,
+    send_json: bool = False,
     operation: str | None = None,
     resource: str | None = None,
 ) -> object:
@@ -460,7 +463,15 @@ def request_json(
         default_operation=f"Call {method.upper()} {path}",
         default_resource=path,
     )
-    response = _request(method, path, operation=operation, resource=resource, params=params, json_data=json_data)
+    response = _request(
+        method,
+        path,
+        operation=operation,
+        resource=resource,
+        params=params,
+        json_data=json_data,
+        send_json=send_json,
+    )
     return _json_response(
         response,
         operation=operation,
@@ -471,7 +482,7 @@ def request_json(
 
 def get(
     path: str,
-    params: dict | None = None,
+    params: _QueryParams | None = None,
     *,
     operation: str | None = None,
     resource: str | None = None,
@@ -489,7 +500,7 @@ def get(
 
 def get_text(
     path: str,
-    params: dict | None = None,
+    params: _QueryParams | None = None,
     *,
     content_type: str | None = None,
     operation: str | None = None,
@@ -520,7 +531,7 @@ def get_text(
 
 def get_with_headers(
     path: str,
-    params: dict | None = None,
+    params: _QueryParams | None = None,
     *,
     operation: str | None = None,
     resource: str | None = None,
