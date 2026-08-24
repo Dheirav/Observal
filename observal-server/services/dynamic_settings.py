@@ -327,6 +327,10 @@ DEFAULTS: dict[str, str] = {
     "deployment.frontend_url": "http://localhost:3000",
     "deployment.public_url": "",
     "deployment.cors_origins": "http://localhost:3000",
+    # Optional aggregate usage reporting. Company identity and public URL are
+    # required before the sender will transmit anything.
+    "usage_ping.enabled": "false",
+    "usage_ping.company_name": "",
     # Danger-zone actions (rendered as buttons; value is informational only)
     "danger.purge_traces_insights": "",
     # Security
@@ -495,6 +499,13 @@ SECTIONS: list[dict[str, Any]] = [
         "icon": "server",
         "danger": True,
         "keys": [k for k in DEFAULTS if k.startswith("deployment.") and k != "deployment.sso_only"],
+    },
+    {
+        "id": "usage_ping",
+        "title": "Usage Reporting",
+        "description": "Share weekly aggregate adoption data with Observal. No prompts, traces, source code, credentials, or user identities are included.",
+        "icon": "activity",
+        "keys": [k for k in DEFAULTS if k.startswith("usage_ping.")],
     },
     {
         "id": "security",
