@@ -5,7 +5,7 @@
 
 ## Goal
 
-Add a privacy-conscious weekly usage ping so Observal can identify active company installations and understand product adoption without collecting user content, source code, prompts, traces, credentials, or other secrets.
+Add privacy-conscious, administrator-scheduled usage reporting so Observal can identify active company installations and understand product adoption without collecting user content, source code, prompts, traces, credentials, or other secrets.
 
 ## Plan
 
@@ -14,12 +14,12 @@ Add a privacy-conscious weekly usage ping so Observal can identify active compan
    - Version the payload so fields can evolve safely.
 
 2. **Add administrator controls**
-   - Add usage-ping settings for enable/disable and company identity.
+   - Add usage-ping settings for enable/disable, company identity, and a super-admin-selected frequency.
    - Show administrators the exact payload preview, last-send status, and next scheduled send.
    - Document every collected field and how to opt out.
 
 3. **Send pings reliably**
-   - Add a weekly background job that sends the payload over HTTPS to the Observal-operated central collector at `https://telemetry.observal.io/api/v1/usage-pings`.
+   - Add a background job that sends the payload on the super administrator's selected schedule over HTTPS to the Observal-operated central collector at `https://telemetry.observal.io/api/v1/usage-pings`.
    - Keep the collector destination fixed by the release configuration rather than administrator-editable; pings must never be sent to another customer instance.
    - Use short timeouts, bounded retries, and isolated failures so collection never affects normal product operation.
 

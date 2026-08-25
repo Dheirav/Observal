@@ -252,6 +252,61 @@ def test_collector_override_is_restricted(monkeypatch: pytest.MonkeyPatch):
         usage_ping._collector_url()
 
 
-def test_next_schedule_is_next_monday():
-    value = usage_ping.next_scheduled_at(datetime(2026, 3, 16, 7, tzinfo=UTC))
-    assert value.isoformat() == "2026-03-23T06:30:00+00:00"
+@pytest.mark.parametrize(
+    ("frequency", "now", "expected"),
+    [
+        ("weekly", datetime(2026, 3, 16, 7, tzinfo=UTC), "2026-03-23T06:30:00+00:00"),
+        ("daily", datetime(2026, 3, 16, 7, tzinfo=UTC), "2026-03-17T06:30:00+00:00"),
+        ("every_6_hours", datetime(2026, 3, 16, 7, tzinfo=UTC), "2026-03-16T12:30:00+00:00"),
+        ("every_6_hours", datetime(2026, 3, 16, 12, 30, tzinfo=UTC), "2026-03-16T18:30:00+00:00"),
+    ],
+)
+def test_next_schedule_matches_selected_frequency(frequency, now, expected):
+    value = usage_ping.next_scheduled_at(now, frequency=frequency)
+    assert value.isoformat() == expected
+
+
+def test_failed_window_reports_next_worker_retry():
+    value = usage_ping._next_delivery_at(
+        "weekly",
+        datetime(2026, 3, 9, 6, 30, tzinfo=UTC),
+        now=datetime(2026, 3, 16, 7, tzinfo=UTC),
+    )
+    assert value.isoformat() == "2026-03-16T12:30:00+00:00"
+
+
+@pytest.mark.asyncio
+async def test_scheduled_send_runs_when_current_window_is_due(monkeypatch: pytest.MonkeyPatch):
+    db = FakeDb()
+    db.state.last_success_at = datetime(2026, 3, 15, 6, 30, tzinfo=UTC)
+    monkeypatch.setattr(usage_ping.ds, "get_bool", AsyncMock(return_value=True))
+    monkeypatch.setattr(usage_ping.ds, "get", AsyncMock(return_value="weekly"))
+    send = AsyncMock(return_value="sent")
+    monkeypatch.setattr(usage_ping, "send_usage_ping", send)
+
+    result = await usage_ping.send_scheduled_usage_ping(db, now=datetime(2026, 3, 16, 7, tzinfo=UTC))
+
+    assert result == "sent"
+    send.assert_awaited_once_with(db)
+
+
+@pytest.mark.asyncio
+async def test_scheduled_send_skips_completed_window(monkeypatch: pytest.MonkeyPatch):
+    db = FakeDb()
+    db.state.last_success_at = datetime(2026, 3, 16, 6, 31, tzinfo=UTC)
+    monkeypatch.setattr(usage_ping.ds, "get_bool", AsyncMock(return_value=True))
+    monkeypatch.setattr(usage_ping.ds, "get", AsyncMock(return_value="weekly"))
+    send = AsyncMock(return_value="sent")
+    monkeypatch.setattr(usage_ping, "send_usage_ping", send)
+
+    result = await usage_ping.send_scheduled_usage_ping(db, now=datetime(2026, 3, 16, 7, tzinfo=UTC))
+
+    assert result == "not-due"
+    send.assert_not_awaited()
+    assert db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_unknown_frequency_falls_back_to_weekly(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(usage_ping.ds, "get", AsyncMock(return_value="hourly"))
+    assert await usage_ping._usage_ping_frequency() == "weekly"

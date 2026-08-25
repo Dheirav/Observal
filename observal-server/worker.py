@@ -70,7 +70,8 @@ class WorkerSettings:
         cron(purge_migration_artifacts, hour={2, 8, 14, 20}, timeout=300, unique=True),  # Every 6 hours (artifacts)
         cron(refresh_user_profiles, hour={3}, minute={15}, timeout=600, unique=True),  # Daily 3:15AM
         cron(purge_inbox_items, hour={4}, minute={45}, timeout=300, unique=True),  # Daily 4:45AM
-        cron(submit_usage_ping, weekday={0}, hour={6}, minute={30}, timeout=90, unique=True),  # Weekly Monday
+        # Poll at each supported boundary; the job applies the super admin's selected cadence.
+        cron(submit_usage_ping, hour={0, 6, 12, 18}, minute={30}, timeout=90, unique=True),
     ]
     on_startup = startup
     on_shutdown = shutdown

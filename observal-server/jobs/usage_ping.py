@@ -8,8 +8,8 @@ from loguru import logger as optic
 
 async def submit_usage_ping(ctx: dict) -> None:
     from database import async_session
-    from services.usage_ping import send_usage_ping
+    from services.usage_ping import send_scheduled_usage_ping
 
     async with async_session() as db:
-        result = await send_usage_ping(db)
+        result = await send_scheduled_usage_ping(db)
     optic.info("usage ping job result={}", result)
