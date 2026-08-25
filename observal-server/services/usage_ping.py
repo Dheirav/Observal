@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 
 _SCHEMA_VERSION = 1
 _STATE_ID = 1
-_PRODUCTION_COLLECTOR_URL = "https://telemetry.observal.io/api/v1/usage-pings"
+_PRODUCTION_COLLECTOR_URL = "https://usage.observal.io/api/v1/usage-pings"
 _LOCAL_COLLECTOR_HOSTS = {"localhost", "127.0.0.1", "telemetry-api"}
 _FREQUENCIES: set[str] = {"every_6_hours", "daily", "weekly"}
 _WORKER_HOURS = (0, 6, 12, 18)

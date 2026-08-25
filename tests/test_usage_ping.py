@@ -191,7 +191,7 @@ async def test_delivery_failure_is_recorded(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.mark.asyncio
 async def test_delivery_blocks_private_production_collector(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(usage_ping.settings, "USAGE_PING_URL", "https://telemetry.observal.io/api/v1/usage-pings")
+    monkeypatch.setattr(usage_ping.settings, "USAGE_PING_URL", "https://usage.observal.io/api/v1/usage-pings")
     monkeypatch.setattr(usage_ping.settings, "USAGE_PING_DEPLOYMENT_TYPE", "self-managed")
     monkeypatch.setattr(usage_ping, "is_private_url", lambda _url: True)
 
@@ -218,7 +218,7 @@ async def test_delivery_allows_explicit_local_development_collector(monkeypatch:
 
 @pytest.mark.asyncio
 async def test_delivery_retries_transient_transport_errors(monkeypatch: pytest.MonkeyPatch):
-    response = httpx.Response(202, request=httpx.Request("POST", "https://telemetry.observal.io"))
+    response = httpx.Response(202, request=httpx.Request("POST", "https://usage.observal.io"))
     client = AsyncMock()
     client.post.side_effect = [httpx.ConnectError("temporary"), response]
     client.__aenter__.return_value = client
@@ -233,7 +233,7 @@ async def test_delivery_retries_transient_transport_errors(monkeypatch: pytest.M
 
 @pytest.mark.asyncio
 async def test_delivery_does_not_retry_client_errors(monkeypatch: pytest.MonkeyPatch):
-    response = httpx.Response(422, request=httpx.Request("POST", "https://telemetry.observal.io"))
+    response = httpx.Response(422, request=httpx.Request("POST", "https://usage.observal.io"))
     client = AsyncMock()
     client.post.return_value = response
     client.__aenter__.return_value = client

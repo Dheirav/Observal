@@ -66,7 +66,7 @@ export function UsagePingSection({ settings, onChanged }: { settings: AdminSetti
   async function sendNow() {
     try {
       await sender.mutateAsync();
-      toast.success("Usage report accepted by telemetry.observal.io");
+      toast.success("Usage report accepted by usage.observal.io");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not send usage report");
     }
@@ -82,7 +82,7 @@ export function UsagePingSection({ settings, onChanged }: { settings: AdminSetti
           <div className="max-w-2xl">
             <p className="text-sm font-medium">Share aggregate product usage with Observal</p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              Sends aggregate reports to telemetry.observal.io on the schedule you choose. Reports include company
+              Sends aggregate reports to usage.observal.io on the schedule you choose. Reports include company
               and instance identity, version, aggregate counts, feature flags, and harness totals. Prompts, traces,
               source code, user identities, and credentials are never included.
             </p>
@@ -118,7 +118,7 @@ export function UsagePingSection({ settings, onChanged }: { settings: AdminSetti
         </div>
 
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-border pt-4 text-xs text-muted-foreground">
-          <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5" /> Destination: {status?.collector_url ?? "telemetry.observal.io"}</span>
+          <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5" /> Destination: {status?.collector_url ?? "usage.observal.io"}</span>
           <span>Last sent: {status?.last_success_at ? new Date(status.last_success_at).toLocaleString() : "Never"}</span>
           <span>Next run: {status?.next_scheduled_at ? new Date(status.next_scheduled_at).toLocaleString() : "Loading"}</span>
         </div>

@@ -3,7 +3,7 @@
 
 # Usage reporting
 
-Observal can send aggregate usage reports to the Observal-operated collector at `https://telemetry.observal.io/api/v1/usage-pings`. Reporting is disabled by default. The collector and reporting dashboard are maintained separately in [Observal Usage](https://github.com/Observal/observal_usage).
+Observal can send aggregate usage reports to the Observal-operated collector at `https://usage.observal.io/api/v1/usage-pings`. Reporting is disabled by default. The collector and reporting dashboard are maintained separately in [Observal Usage](https://github.com/Observal/observal_usage).
 
 ## Enable reporting
 
