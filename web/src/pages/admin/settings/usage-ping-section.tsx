@@ -5,14 +5,26 @@ import { useEffect, useState } from "react";
 import { Activity, CheckCircle2, Eye, Loader2, Send, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { admin } from "@/lib/api";
-import type { AdminSetting } from "@/lib/types";
+import type { AdminSetting, UsagePingFrequency } from "@/lib/types";
 import { useSendUsagePing, useUsagePingPreview, useUsagePingStatus } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+const FREQUENCY_OPTIONS: { value: UsagePingFrequency; label: string; detail: string }[] = [
+  { value: "every_6_hours", label: "Every 6 hours", detail: "00:30, 06:30, 12:30, and 18:30 UTC" },
+  { value: "daily", label: "Daily", detail: "06:30 UTC each day" },
+  { value: "weekly", label: "Weekly", detail: "Monday at 06:30 UTC" },
+];
 
 function valueOf(settings: AdminSetting[], key: string, fallback = "") {
   return settings.find((setting) => setting.key === key)?.value ?? fallback;
+}
+
+function frequencyOf(settings: AdminSetting[]): UsagePingFrequency {
+  const value = valueOf(settings, "usage_ping.frequency", "weekly");
+  return FREQUENCY_OPTIONS.find((option) => option.value === value)?.value ?? "weekly";
 }
 
 export function UsagePingSection({ settings, onChanged }: { settings: AdminSetting[]; onChanged: () => void }) {
@@ -20,11 +32,13 @@ export function UsagePingSection({ settings, onChanged }: { settings: AdminSetti
   const preview = useUsagePingPreview();
   const sender = useSendUsagePing();
   const [companyName, setCompanyName] = useState(() => valueOf(settings, "usage_ping.company_name"));
+  const [frequency, setFrequency] = useState<UsagePingFrequency>(() => frequencyOf(settings));
   const [enabled, setEnabled] = useState(() => valueOf(settings, "usage_ping.enabled") === "true");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setCompanyName(valueOf(settings, "usage_ping.company_name"));
+    setFrequency(frequencyOf(settings));
     setEnabled(valueOf(settings, "usage_ping.enabled") === "true");
   }, [settings]);
 
@@ -36,10 +50,12 @@ export function UsagePingSection({ settings, onChanged }: { settings: AdminSetti
     setSaving(true);
     try {
       await admin.updateSetting("usage_ping.company_name", { value: companyName.trim() });
+      await admin.updateSetting("usage_ping.frequency", { value: frequency });
       await admin.updateSetting("usage_ping.enabled", { value: enabled ? "true" : "false" });
       await refetch();
       onChanged();
-      toast.success(enabled ? "Weekly usage reporting enabled" : "Usage reporting disabled");
+      const frequencyLabel = FREQUENCY_OPTIONS.find((option) => option.value === frequency)?.label.toLowerCase();
+      toast.success(enabled ? `${frequencyLabel} usage reporting enabled` : "Usage reporting disabled");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not save usage reporting settings");
     } finally {
@@ -66,19 +82,35 @@ export function UsagePingSection({ settings, onChanged }: { settings: AdminSetti
           <div className="max-w-2xl">
             <p className="text-sm font-medium">Share aggregate product usage with Observal</p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              Sends one report each week to telemetry.observal.io. Reports include company and instance identity,
-              version, aggregate counts, feature flags, and harness totals. Prompts, traces, source code, user
-              identities, and credentials are never included.
+              Sends aggregate reports to telemetry.observal.io on the schedule you choose. Reports include company
+              and instance identity, version, aggregate counts, feature flags, and harness totals. Prompts, traces,
+              source code, user identities, and credentials are never included.
             </p>
           </div>
-          <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Enable weekly usage reporting" />
+          <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Enable usage reporting" />
         </div>
 
-        <div className="grid gap-2 border-t border-border pt-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+        <div className="grid gap-3 border-t border-border pt-4 md:grid-cols-[minmax(0,1fr)_minmax(12rem,0.5fr)_auto] md:items-end">
           <label className="space-y-1.5">
             <span className="text-xs font-medium">Company name</span>
             <Input value={companyName} onChange={(event) => setCompanyName(event.target.value)} maxLength={160} placeholder="Acme Engineering" />
           </label>
+          <div className="space-y-1.5">
+            <label htmlFor="usage-reporting-frequency" className="text-xs font-medium">Reporting frequency</label>
+            <Select value={frequency} onValueChange={(value) => setFrequency(value as UsagePingFrequency)}>
+              <SelectTrigger id="usage-reporting-frequency">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {FREQUENCY_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">
+              {FREQUENCY_OPTIONS.find((option) => option.value === frequency)?.detail}
+            </p>
+          </div>
           <Button onClick={save} disabled={saving}>
             {saving ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-1.5 h-4 w-4" />}
             Save consent

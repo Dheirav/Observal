@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from urllib.parse import urlparse
 
 import httpx
@@ -30,6 +30,7 @@ from models.usage_ping import UsagePingState
 from models.user import User
 from schemas.usage_ping import (
     UsagePingCounts,
+    UsagePingFrequency,
     UsagePingIdentity,
     UsagePingInstance,
     UsagePingPayload,
@@ -45,16 +46,63 @@ _SCHEMA_VERSION = 1
 _STATE_ID = 1
 _PRODUCTION_COLLECTOR_URL = "https://telemetry.observal.io/api/v1/usage-pings"
 _LOCAL_COLLECTOR_HOSTS = {"localhost", "127.0.0.1", "telemetry-api"}
+_FREQUENCIES: set[str] = {"every_6_hours", "daily", "weekly"}
+_WORKER_HOURS = (0, 6, 12, 18)
 
 
-def next_scheduled_at(now: datetime | None = None) -> datetime:
-    """Return the next Monday at 06:30 UTC, matching the worker schedule."""
-    current = (now or datetime.now(UTC)).astimezone(UTC)
-    days = (7 - current.weekday()) % 7
-    candidate = (current + timedelta(days=days)).replace(hour=6, minute=30, second=0, microsecond=0)
-    if candidate <= current:
-        candidate += timedelta(days=7)
-    return candidate
+def _as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def _scheduled_at_or_before(frequency: UsagePingFrequency, now: datetime) -> datetime:
+    current = _as_utc(now)
+    if frequency == "weekly":
+        candidate = (current - timedelta(days=current.weekday())).replace(hour=6, minute=30, second=0, microsecond=0)
+        return candidate if candidate <= current else candidate - timedelta(days=7)
+    if frequency == "daily":
+        candidate = current.replace(hour=6, minute=30, second=0, microsecond=0)
+        return candidate if candidate <= current else candidate - timedelta(days=1)
+    for hour in reversed(_WORKER_HOURS):
+        candidate = current.replace(hour=hour, minute=30, second=0, microsecond=0)
+        if candidate <= current:
+            return candidate
+    return (current - timedelta(days=1)).replace(hour=18, minute=30, second=0, microsecond=0)
+
+
+def next_scheduled_at(now: datetime | None = None, *, frequency: UsagePingFrequency = "weekly") -> datetime:
+    """Return the next configured delivery boundary in UTC."""
+    current = _as_utc(now or datetime.now(UTC))
+    if frequency == "weekly":
+        days = (7 - current.weekday()) % 7
+        candidate = (current + timedelta(days=days)).replace(hour=6, minute=30, second=0, microsecond=0)
+        return candidate if candidate > current else candidate + timedelta(days=7)
+    if frequency == "daily":
+        candidate = current.replace(hour=6, minute=30, second=0, microsecond=0)
+        return candidate if candidate > current else candidate + timedelta(days=1)
+    for hour in _WORKER_HOURS:
+        candidate = current.replace(hour=hour, minute=30, second=0, microsecond=0)
+        if candidate > current:
+            return candidate
+    return (current + timedelta(days=1)).replace(hour=0, minute=30, second=0, microsecond=0)
+
+
+def _next_worker_at(now: datetime) -> datetime:
+    return next_scheduled_at(now, frequency="every_6_hours")
+
+
+def _next_delivery_at(
+    frequency: UsagePingFrequency, last_success_at: datetime | None, now: datetime | None = None
+) -> datetime:
+    current = _as_utc(now or datetime.now(UTC))
+    due_at = _scheduled_at_or_before(frequency, current)
+    if last_success_at is None or _as_utc(last_success_at) < due_at:
+        return _next_worker_at(current)
+    return next_scheduled_at(current, frequency=frequency)
+
+
+async def _usage_ping_frequency() -> UsagePingFrequency:
+    value = (await ds.get("usage_ping.frequency", "weekly")).strip().lower()
+    return cast("UsagePingFrequency", value) if value in _FREQUENCIES else "weekly"
 
 
 def _reporting_week(value: datetime) -> str:
@@ -193,16 +241,23 @@ async def usage_ping_status(db: AsyncSession) -> UsagePingStatus:
     enabled = await ds.get_bool("usage_ping.enabled")
     company_name = (await ds.get("usage_ping.company_name")).strip()
     public_url = (await ds.get("deployment.public_url")).strip()
+    frequency = await _usage_ping_frequency()
+    configured = bool(company_name and public_url)
     await db.commit()
     return UsagePingStatus(
         enabled=enabled,
-        configured=bool(company_name and public_url),
+        configured=configured,
+        frequency=frequency,
         collector_url=_collector_url(),
         installation_id=state.installation_id,
         last_attempt_at=state.last_attempt_at,
         last_success_at=state.last_success_at,
         last_error=state.last_error,
-        next_scheduled_at=next_scheduled_at(),
+        next_scheduled_at=(
+            _next_delivery_at(frequency, state.last_success_at)
+            if enabled and configured
+            else next_scheduled_at(frequency=frequency)
+        ),
     )
 
 
@@ -247,6 +302,20 @@ async def _deliver_payload(payload: UsagePingPayload) -> httpx.Response:
     if last_error:
         raise last_error
     raise RuntimeError("Usage report delivery failed")
+
+
+async def send_scheduled_usage_ping(db: AsyncSession, *, now: datetime | None = None) -> str:
+    """Send when the administrator-selected schedule is due."""
+    if not await ds.get_bool("usage_ping.enabled"):
+        return "disabled"
+    current = _as_utc(now or datetime.now(UTC))
+    frequency = await _usage_ping_frequency()
+    state = await _state(db)
+    due_at = _scheduled_at_or_before(frequency, current)
+    if state.last_success_at is not None and _as_utc(state.last_success_at) >= due_at:
+        await db.commit()
+        return "not-due"
+    return await send_usage_ping(db)
 
 
 async def send_usage_ping(db: AsyncSession) -> str:

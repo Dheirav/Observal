@@ -331,6 +331,7 @@ DEFAULTS: dict[str, str] = {
     # required before the sender will transmit anything.
     "usage_ping.enabled": "false",
     "usage_ping.company_name": "",
+    "usage_ping.frequency": "weekly",
     # Danger-zone actions (rendered as buttons; value is informational only)
     "danger.purge_traces_insights": "",
     # Security
@@ -503,7 +504,7 @@ SECTIONS: list[dict[str, Any]] = [
     {
         "id": "usage_ping",
         "title": "Usage Reporting",
-        "description": "Share weekly aggregate adoption data with Observal. No prompts, traces, source code, credentials, or user identities are included.",
+        "description": "Share aggregate adoption data with Observal on a super-admin-selected schedule. No prompts, traces, source code, credentials, or user identities are included.",
         "icon": "activity",
         "keys": [k for k in DEFAULTS if k.startswith("usage_ping.")],
     },

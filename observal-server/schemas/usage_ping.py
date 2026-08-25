@@ -9,6 +9,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+UsagePingFrequency = Literal["every_6_hours", "daily", "weekly"]
+
 
 class UsagePingIdentity(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -63,6 +65,7 @@ class UsagePingPayload(BaseModel):
 class UsagePingStatus(BaseModel):
     enabled: bool
     configured: bool
+    frequency: UsagePingFrequency
     collector_url: str
     installation_id: UUID | None
     last_attempt_at: datetime | None

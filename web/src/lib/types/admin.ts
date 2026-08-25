@@ -117,9 +117,12 @@ export interface UsagePingPayload {
 	harnesses: Record<string, number>;
 }
 
+export type UsagePingFrequency = "every_6_hours" | "daily" | "weekly";
+
 export interface UsagePingStatus {
 	enabled: boolean;
 	configured: boolean;
+	frequency: UsagePingFrequency;
 	collector_url: string;
 	installation_id: string | null;
 	last_attempt_at: string | null;
