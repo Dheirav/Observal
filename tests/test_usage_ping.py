@@ -9,7 +9,13 @@ import httpx
 import pytest
 
 from models.usage_ping import UsagePingState
-from schemas.usage_ping import UsagePingCounts, UsagePingIdentity, UsagePingInstance, UsagePingPayload
+from schemas.usage_ping import (
+    UsagePingActivity,
+    UsagePingCounts,
+    UsagePingIdentity,
+    UsagePingInstance,
+    UsagePingPayload,
+)
 from services import usage_ping
 
 
@@ -37,6 +43,46 @@ class FakeDb:
         self.commits += 1
 
 
+def sample_activity() -> UsagePingActivity:
+    return UsagePingActivity(
+        active_users_7d=1,
+        active_users_30d=1,
+        active_agents_7d=1,
+        active_agents_30d=1,
+        events_7d=4,
+        events_30d=4,
+        prompts_7d=1,
+        prompts_30d=1,
+        tool_calls_7d=1,
+        tool_calls_30d=1,
+        tool_results_7d=1,
+        tool_results_30d=1,
+        input_tokens_7d=100,
+        input_tokens_30d=100,
+        output_tokens_7d=20,
+        output_tokens_30d=20,
+        cache_read_tokens_7d=50,
+        cache_read_tokens_30d=50,
+        cache_write_tokens_7d=10,
+        cache_write_tokens_30d=10,
+        credits_7d=1.25,
+        credits_30d=1.25,
+        average_session_duration_seconds_30d=60,
+        average_prompts_per_session_30d=1,
+        average_tool_calls_per_session_30d=1,
+        sessions_with_tools_30d=1,
+        sessions_with_tokens_30d=1,
+        registered_agent_sessions_30d=1,
+        unregistered_agent_sessions_30d=0,
+        top_level_sessions_30d=1,
+        subagent_sessions_30d=0,
+        distinct_agent_versions_30d=1,
+        distinct_models_30d=1,
+        parse_errors_30d=0,
+        truncated_events_30d=0,
+    )
+
+
 def sample_payload() -> UsagePingPayload:
     return UsagePingPayload(
         ping_id=uuid.uuid4(),
@@ -58,6 +104,7 @@ def sample_payload() -> UsagePingPayload:
             sessions_7d=1,
             sessions_30d=1,
         ),
+        activity=sample_activity(),
         features={},
         harnesses={},
     )
@@ -101,14 +148,22 @@ async def test_build_payload_contains_only_aggregate_fields(monkeypatch: pytest.
     )
     monkeypatch.setattr(
         usage_ping,
-        "_session_counts",
-        AsyncMock(return_value=({"sessions_total": 12, "sessions_7d": 2, "sessions_30d": 7}, {"pi": 7})),
+        "_session_metrics",
+        AsyncMock(
+            return_value=(
+                {"sessions_total": 12, "sessions_7d": 2, "sessions_30d": 7},
+                sample_activity().model_dump(),
+                {"pi": 7},
+            )
+        ),
     )
 
     result = await usage_ping.build_usage_ping(db, now=datetime(2026, 3, 16, tzinfo=UTC))
     body = result.model_dump(mode="json")
     assert body["identity"] == {"company_name": "Acme", "hostname": "agents.acme.test"}
+    assert body["schema_version"] == 2
     assert body["counts"]["sessions_30d"] == 7
+    assert body["activity"]["active_users_30d"] == 1
     assert body["harnesses"] == {"pi": 7}
     serialized = str(body).lower()
     assert "email" not in serialized
@@ -117,23 +172,47 @@ async def test_build_payload_contains_only_aggregate_fields(monkeypatch: pytest.
 
 
 @pytest.mark.asyncio
-async def test_session_counts_limit_harnesses(monkeypatch: pytest.MonkeyPatch):
+async def test_session_metrics_include_aggregates_and_limit_harnesses(monkeypatch: pytest.MonkeyPatch):
     from services.clickhouse import client as clickhouse_client
 
     totals_response = MagicMock()
-    totals_response.json.return_value = {"data": [{"sessions_total": 40, "sessions_7d": 20, "sessions_30d": 30}]}
+    totals_response.json.return_value = {
+        "data": [
+            {
+                "sessions_total": 40,
+                "sessions_7d": 20,
+                "sessions_30d": 30,
+                "active_users_30d": 12,
+                "active_agents_30d": 8,
+                "prompts_30d": 90,
+                "tool_calls_30d": 150,
+                "credits_30d": 7.5,
+                "session_duration_seconds_30d": 3000,
+            }
+        ]
+    }
+    health_response = MagicMock()
+    health_response.json.return_value = {"data": [{"parse_errors_30d": 2, "truncated_events_30d": 3}]}
     harness_response = MagicMock()
     harness_response.json.return_value = {
         "data": [{"harness": f"harness-{index}", "sessions": 40 - index} for index in range(40)]
     }
-    query = AsyncMock(side_effect=[totals_response, harness_response])
+    query = AsyncMock(side_effect=[totals_response, health_response, harness_response])
     monkeypatch.setattr(clickhouse_client, "_query", query)
 
-    totals, harnesses = await usage_ping._session_counts()
+    totals, activity, harnesses = await usage_ping._session_metrics()
 
     assert totals["sessions_total"] == 40
+    assert activity["active_users_30d"] == 12
+    assert activity["active_agents_30d"] == 8
+    assert activity["average_session_duration_seconds_30d"] == 100
+    assert activity["average_prompts_per_session_30d"] == 3
+    assert activity["average_tool_calls_per_session_30d"] == 5
+    assert activity["credits_30d"] == 7.5
+    assert activity["parse_errors_30d"] == 2
+    assert activity["truncated_events_30d"] == 3
     assert len(harnesses) == 32
-    assert "LIMIT 32" in query.await_args_list[1].args[0]
+    assert "LIMIT 32" in query.await_args_list[2].args[0]
 
 
 @pytest.mark.asyncio

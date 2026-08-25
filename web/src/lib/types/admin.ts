@@ -113,6 +113,7 @@ export interface UsagePingPayload {
 	identity: { company_name: string; hostname: string };
 	instance: { version: string; deployment_type: string };
 	counts: Record<string, number>;
+	activity: Record<string, number>;
 	features: Record<string, boolean>;
 	harnesses: Record<string, number>;
 }

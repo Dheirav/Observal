@@ -10,7 +10,7 @@ Add privacy-conscious, administrator-scheduled usage reporting so Observal can i
 ## Plan
 
 1. **Define the payload**
-   - Include a stable installation ID, configured company name, instance hostname, Observal version, deployment type, timestamp, and aggregate counts for users, agents, components, sessions, and major feature adoption.
+   - Include a stable installation ID, configured company name, instance hostname, Observal version, deployment type, timestamp, and aggregate counts for users, agents, components, sessions, activity, token usage, and major feature adoption.
    - Version the payload so fields can evolve safely.
 
 2. **Add administrator controls**

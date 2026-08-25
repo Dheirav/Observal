@@ -29,6 +29,7 @@ from models.team import Team
 from models.usage_ping import UsagePingState
 from models.user import User
 from schemas.usage_ping import (
+    UsagePingActivity,
     UsagePingCounts,
     UsagePingFrequency,
     UsagePingIdentity,
@@ -42,7 +43,7 @@ from version import get_server_version
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 _STATE_ID = 1
 _PRODUCTION_COLLECTOR_URL = "https://usage.observal.io/api/v1/usage-pings"
 _LOCAL_COLLECTOR_HOSTS = {"localhost", "127.0.0.1", "telemetry-api"}
@@ -165,29 +166,142 @@ async def _postgres_counts(db: AsyncSession) -> dict[str, int]:
     }
 
 
-async def _session_counts() -> tuple[dict[str, int], dict[str, int]]:
+_ACTIVITY_INTEGER_FIELDS = (
+    "active_users_7d",
+    "active_users_30d",
+    "active_agents_7d",
+    "active_agents_30d",
+    "events_7d",
+    "events_30d",
+    "prompts_7d",
+    "prompts_30d",
+    "tool_calls_7d",
+    "tool_calls_30d",
+    "tool_results_7d",
+    "tool_results_30d",
+    "input_tokens_7d",
+    "input_tokens_30d",
+    "output_tokens_7d",
+    "output_tokens_30d",
+    "cache_read_tokens_7d",
+    "cache_read_tokens_30d",
+    "cache_write_tokens_7d",
+    "cache_write_tokens_30d",
+    "sessions_with_tools_30d",
+    "sessions_with_tokens_30d",
+    "registered_agent_sessions_30d",
+    "unregistered_agent_sessions_30d",
+    "top_level_sessions_30d",
+    "subagent_sessions_30d",
+    "distinct_agent_versions_30d",
+    "distinct_models_30d",
+    "parse_errors_30d",
+    "truncated_events_30d",
+)
+
+
+async def _session_metrics() -> tuple[dict[str, int], dict[str, int | float], dict[str, int]]:
     from services.clickhouse.client import _query
 
     totals = {"sessions_total": 0, "sessions_7d": 0, "sessions_30d": 0}
+    activity: dict[str, int | float] = dict.fromkeys(_ACTIVITY_INTEGER_FIELDS, 0)
+    activity.update(
+        {
+            "credits_7d": 0.0,
+            "credits_30d": 0.0,
+            "average_session_duration_seconds_30d": 0.0,
+            "average_prompts_per_session_30d": 0.0,
+            "average_tool_calls_per_session_30d": 0.0,
+        }
+    )
     harnesses: dict[str, int] = {}
     try:
         response = await _query(
-            "SELECT uniqExact(session_id) AS sessions_total, "
+            "SELECT "
+            "uniqExact(session_id) AS sessions_total, "
             "uniqExactIf(session_id, last_event_time >= now() - INTERVAL 7 DAY) AS sessions_7d, "
-            "uniqExactIf(session_id, last_event_time >= now() - INTERVAL 30 DAY) AS sessions_30d "
-            "FROM session_stats_agg FORMAT JSON"
+            "uniqExactIf(session_id, last_event_time >= now() - INTERVAL 30 DAY) AS sessions_30d, "
+            "uniqExactIf(user_id, user_id != '' AND last_event_time >= now() - INTERVAL 7 DAY) AS active_users_7d, "
+            "uniqExactIf(user_id, user_id != '' AND last_event_time >= now() - INTERVAL 30 DAY) AS active_users_30d, "
+            "uniqExactIf(agent_id, agent_id != '' AND last_event_time >= now() - INTERVAL 7 DAY) AS active_agents_7d, "
+            "uniqExactIf(agent_id, agent_id != '' AND last_event_time >= now() - INTERVAL 30 DAY) AS active_agents_30d, "
+            "sumIf(event_count, last_event_time >= now() - INTERVAL 7 DAY) AS events_7d, "
+            "sumIf(event_count, last_event_time >= now() - INTERVAL 30 DAY) AS events_30d, "
+            "sumIf(prompt_count, last_event_time >= now() - INTERVAL 7 DAY) AS prompts_7d, "
+            "sumIf(prompt_count, last_event_time >= now() - INTERVAL 30 DAY) AS prompts_30d, "
+            "sumIf(tool_call_count, last_event_time >= now() - INTERVAL 7 DAY) AS tool_calls_7d, "
+            "sumIf(tool_call_count, last_event_time >= now() - INTERVAL 30 DAY) AS tool_calls_30d, "
+            "sumIf(tool_result_count, last_event_time >= now() - INTERVAL 7 DAY) AS tool_results_7d, "
+            "sumIf(tool_result_count, last_event_time >= now() - INTERVAL 30 DAY) AS tool_results_30d, "
+            "sumIf(input_tokens, last_event_time >= now() - INTERVAL 7 DAY) AS input_tokens_7d, "
+            "sumIf(input_tokens, last_event_time >= now() - INTERVAL 30 DAY) AS input_tokens_30d, "
+            "sumIf(output_tokens, last_event_time >= now() - INTERVAL 7 DAY) AS output_tokens_7d, "
+            "sumIf(output_tokens, last_event_time >= now() - INTERVAL 30 DAY) AS output_tokens_30d, "
+            "sumIf(cache_read_tokens, last_event_time >= now() - INTERVAL 7 DAY) AS cache_read_tokens_7d, "
+            "sumIf(cache_read_tokens, last_event_time >= now() - INTERVAL 30 DAY) AS cache_read_tokens_30d, "
+            "sumIf(cache_write_tokens, last_event_time >= now() - INTERVAL 7 DAY) AS cache_write_tokens_7d, "
+            "sumIf(cache_write_tokens, last_event_time >= now() - INTERVAL 30 DAY) AS cache_write_tokens_30d, "
+            "sumIf(total_credits, last_event_time >= now() - INTERVAL 7 DAY) AS credits_7d, "
+            "sumIf(total_credits, last_event_time >= now() - INTERVAL 30 DAY) AS credits_30d, "
+            "sumIf(greatest(dateDiff('second', first_event_time, last_event_time), 0), "
+            "last_event_time >= now() - INTERVAL 30 DAY) AS session_duration_seconds_30d, "
+            "countIf(last_event_time >= now() - INTERVAL 30 DAY AND tool_call_count > 0) AS sessions_with_tools_30d, "
+            "countIf(last_event_time >= now() - INTERVAL 30 DAY AND input_tokens + output_tokens > 0) "
+            "AS sessions_with_tokens_30d, "
+            "countIf(last_event_time >= now() - INTERVAL 30 DAY AND agent_id != '') "
+            "AS registered_agent_sessions_30d, "
+            "countIf(last_event_time >= now() - INTERVAL 30 DAY AND agent_id = '') "
+            "AS unregistered_agent_sessions_30d, "
+            "countIf(last_event_time >= now() - INTERVAL 30 DAY AND parent_session_id = '') "
+            "AS top_level_sessions_30d, "
+            "countIf(last_event_time >= now() - INTERVAL 30 DAY AND parent_session_id != '') "
+            "AS subagent_sessions_30d, "
+            "uniqExactIf(agent_version, agent_version != '' AND last_event_time >= now() - INTERVAL 30 DAY) "
+            "AS distinct_agent_versions_30d, "
+            "uniqExactIf(model, model != '' AND last_event_time >= now() - INTERVAL 30 DAY) "
+            "AS distinct_models_30d "
+            "FROM session_stats_agg FINAL FORMAT JSON"
         )
         response.raise_for_status()
         rows = response.json().get("data", [])
         if rows:
-            totals = {key: max(0, int(rows[0].get(key, 0))) for key in totals}
+            row = rows[0]
+            totals = {key: max(0, int(row.get(key, 0) or 0)) for key in totals}
+            for key in _ACTIVITY_INTEGER_FIELDS:
+                if key not in {"parse_errors_30d", "truncated_events_30d"}:
+                    activity[key] = max(0, int(row.get(key, 0) or 0))
+            activity["credits_7d"] = max(0.0, float(row.get("credits_7d", 0) or 0))
+            activity["credits_30d"] = max(0.0, float(row.get("credits_30d", 0) or 0))
+            sessions_30d = totals["sessions_30d"]
+            if sessions_30d:
+                activity["average_session_duration_seconds_30d"] = round(
+                    max(0.0, float(row.get("session_duration_seconds_30d", 0) or 0)) / sessions_30d, 2
+                )
+                activity["average_prompts_per_session_30d"] = round(int(activity["prompts_30d"]) / sessions_30d, 2)
+                activity["average_tool_calls_per_session_30d"] = round(
+                    int(activity["tool_calls_30d"]) / sessions_30d, 2
+                )
     except Exception as exc:
-        optic.warning("usage ping session counters unavailable: {}", exc)
+        optic.warning("usage ping session metrics unavailable: {}", exc)
+
+    try:
+        response = await _query(
+            "SELECT countIf(event_type = '_parse_error') AS parse_errors_30d, "
+            "countIf(raw_line_truncated = 1) AS truncated_events_30d "
+            "FROM session_events FINAL WHERE timestamp >= now() - INTERVAL 30 DAY FORMAT JSON"
+        )
+        response.raise_for_status()
+        rows = response.json().get("data", [])
+        if rows:
+            activity["parse_errors_30d"] = max(0, int(rows[0].get("parse_errors_30d", 0) or 0))
+            activity["truncated_events_30d"] = max(0, int(rows[0].get("truncated_events_30d", 0) or 0))
+    except Exception as exc:
+        optic.warning("usage ping ingestion health metrics unavailable: {}", exc)
 
     try:
         response = await _query(
             "SELECT harness, uniqExact(session_id) AS sessions "
-            "FROM session_stats_agg WHERE harness != '' GROUP BY harness "
+            "FROM session_stats_agg FINAL WHERE harness != '' GROUP BY harness "
             "ORDER BY sessions DESC LIMIT 32 FORMAT JSON"
         )
         response.raise_for_status()
@@ -197,7 +311,7 @@ async def _session_counts() -> tuple[dict[str, int], dict[str, int]]:
                 harnesses[name] = max(0, int(row.get("sessions", 0)))
     except Exception as exc:
         optic.warning("usage ping harness counters unavailable: {}", exc)
-    return totals, harnesses
+    return totals, activity, harnesses
 
 
 async def build_usage_ping(db: AsyncSession, *, now: datetime | None = None) -> UsagePingPayload:
@@ -207,7 +321,7 @@ async def build_usage_ping(db: AsyncSession, *, now: datetime | None = None) -> 
     company_name = (await ds.get("usage_ping.company_name")).strip()
     public_url = await ds.get("deployment.public_url")
     postgres_counts = await _postgres_counts(db)
-    session_counts, harnesses = await _session_counts()
+    session_counts, activity, harnesses = await _session_metrics()
     features = {
         "insights": await ds.get_bool("insights.batch_enabled"),
         "retention": await ds.get_bool("retention.enabled"),
@@ -229,6 +343,7 @@ async def build_usage_ping(db: AsyncSession, *, now: datetime | None = None) -> 
         identity=UsagePingIdentity(company_name=company_name or "not-configured", hostname=_hostname(public_url)),
         instance=UsagePingInstance(version=get_server_version(), deployment_type=_deployment_type()),
         counts=UsagePingCounts(**postgres_counts, **session_counts),
+        activity=UsagePingActivity(**activity),
         features=features,
         harnesses=harnesses,
     )
