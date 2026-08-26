@@ -102,8 +102,8 @@ def _next_delivery_at(
 
 
 async def _usage_ping_frequency() -> UsagePingFrequency:
-    value = (await ds.get("usage_ping.frequency", "weekly")).strip().lower()
-    return cast("UsagePingFrequency", value) if value in _FREQUENCIES else "weekly"
+    value = (await ds.get("usage_ping.frequency", "every_6_hours")).strip().lower()
+    return cast("UsagePingFrequency", value) if value in _FREQUENCIES else "every_6_hours"
 
 
 def _reporting_week(value: datetime) -> str:

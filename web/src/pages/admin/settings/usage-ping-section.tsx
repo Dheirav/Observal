@@ -23,8 +23,8 @@ function valueOf(settings: AdminSetting[], key: string, fallback = "") {
 }
 
 function frequencyOf(settings: AdminSetting[]): UsagePingFrequency {
-  const value = valueOf(settings, "usage_ping.frequency", "weekly");
-  return FREQUENCY_OPTIONS.find((option) => option.value === value)?.value ?? "weekly";
+  const value = valueOf(settings, "usage_ping.frequency", "every_6_hours");
+  return FREQUENCY_OPTIONS.find((option) => option.value === value)?.value ?? "every_6_hours";
 }
 
 export function UsagePingSection({ settings, onChanged }: { settings: AdminSetting[]; onChanged: () => void }) {
@@ -81,6 +81,7 @@ export function UsagePingSection({ settings, onChanged }: { settings: AdminSetti
         <div className="flex items-start justify-between gap-6">
           <div className="max-w-2xl">
             <p className="text-sm font-medium">Share aggregate product usage with Observal</p>
+            <p className="mt-1 text-xs font-medium text-foreground">Enabled by default · Every 6 hours</p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
               Sends aggregate reports to usage.observal.io on the schedule you choose. Reports include company
               and instance identity, version, aggregate counts, feature flags, and harness totals. Prompts, traces,
