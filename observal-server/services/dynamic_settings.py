@@ -329,9 +329,9 @@ DEFAULTS: dict[str, str] = {
     "deployment.cors_origins": "http://localhost:3000",
     # Optional aggregate usage reporting. Company identity and public URL are
     # required before the sender will transmit anything.
-    "usage_ping.enabled": "false",
+    "usage_ping.enabled": "true",
     "usage_ping.company_name": "",
-    "usage_ping.frequency": "weekly",
+    "usage_ping.frequency": "every_6_hours",
     # Danger-zone actions (rendered as buttons; value is informational only)
     "danger.purge_traces_insights": "",
     # Security

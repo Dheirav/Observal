@@ -3,11 +3,11 @@
 
 # Usage reporting
 
-Observal can send aggregate usage reports to the Observal-operated collector at `https://usage.observal.io/api/v1/usage-pings`. Reporting is disabled by default. The collector and reporting dashboard are maintained separately in [Observal Usage](https://github.com/Observal/observal_usage).
+Observal can send aggregate usage reports to the Observal-operated collector at `https://usage.observal.io/api/v1/usage-pings`. Reporting is enabled by default with a six-hour cadence, but delivery remains dormant until a super administrator configures the company name and Deployment Public URL. The collector and reporting dashboard are maintained separately in [Observal Usage](https://github.com/Observal/observal_usage).
 
 ## Enable reporting
 
-A super administrator must configure **Deployment Public URL** and then open **Admin > Settings > Usage Reporting**. Enter the company name, choose a reporting frequency, enable reporting, and save consent. The available frequencies are every six hours, daily, and weekly. Weekly is the default. The same panel previews the exact payload and can send a test report.
+A super administrator must configure **Deployment Public URL** and then open **Admin > Settings > Usage Reporting**, which appears near the top of the settings page. Enter the company name and save the reporting configuration. The available frequencies are every six hours, daily, and weekly. Every six hours is the default. The same panel can disable reporting, change the frequency, preview the exact payload, and send a test report.
 
 Only a super administrator can change the company identity, frequency, or consent setting.
 

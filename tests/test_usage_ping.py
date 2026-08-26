@@ -19,6 +19,13 @@ from schemas.usage_ping import (
 from services import usage_ping
 
 
+def test_usage_reporting_defaults_to_enabled_every_six_hours():
+    from services.dynamic_settings import DEFAULTS
+
+    assert DEFAULTS["usage_ping.enabled"] == "true"
+    assert DEFAULTS["usage_ping.frequency"] == "every_6_hours"
+
+
 @pytest.fixture(autouse=True)
 def _allow_public_collector(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(usage_ping, "is_private_url", lambda _url: False)
@@ -216,7 +223,7 @@ async def test_session_metrics_include_aggregates_and_limit_harnesses(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_send_is_opt_in(monkeypatch: pytest.MonkeyPatch):
+async def test_send_respects_disabled_setting(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(usage_ping.ds, "get_bool", AsyncMock(return_value=False))
     assert await usage_ping.send_usage_ping(FakeDb()) == "disabled"
 
@@ -386,6 +393,6 @@ async def test_scheduled_send_skips_completed_window(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.asyncio
-async def test_unknown_frequency_falls_back_to_weekly(monkeypatch: pytest.MonkeyPatch):
+async def test_unknown_frequency_falls_back_to_every_six_hours(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(usage_ping.ds, "get", AsyncMock(return_value="hourly"))
-    assert await usage_ping._usage_ping_frequency() == "weekly"
+    assert await usage_ping._usage_ping_frequency() == "every_6_hours"
