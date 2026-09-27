@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 import stat
 import subprocess
 import sys
@@ -223,6 +224,81 @@ def test_pin_hook_interpreter_is_idempotent_and_json_safe(monkeypatch: pytest.Mo
     windows = r"C:\Python312\python3 -m observal_cli.x"
     assert cmd_pull._pin_hook_interpreter(windows) == windows
     assert cmd_pull._pin_hook_interpreter(json.dumps(windows)) == json.dumps(windows)
+
+
+def test_pin_hook_interpreter_quotes_paths_with_spaces(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cmd_pull.sys, "executable", "/tmp/Observal Tools/bin/python3")
+    source = json.dumps({"command": "python3 -m observal_cli.hooks.session_push --harness cursor"})
+    result = cmd_pull._pin_hook_interpreter(source)
+    command = json.loads(result)["command"]
+    assert command == "'/tmp/Observal Tools/bin/python3' -m observal_cli.hooks.session_push --harness cursor"
+    assert cmd_pull._pin_hook_interpreter(result) == result
+
+
+def test_pin_hook_interpreter_windows_path_with_spaces(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cmd_pull.sys, "platform", "win32")
+    monkeypatch.setattr(cmd_pull.sys, "executable", r"C:\Program Files\Observal\python.exe")
+    source = json.dumps({"command": "python3 -m observal_cli.hooks.session_push"})
+    command = json.loads(cmd_pull._pin_hook_interpreter(source))["command"]
+    assert command == '"C:/Program Files/Observal/python.exe" -m observal_cli.hooks.session_push'
+    profile = 'command: "python3 -m observal_cli.hooks.session_push"'
+    rewritten = cmd_pull._pin_hook_interpreter(profile)
+    assert rewritten == 'command: "\\"C:/Program Files/Observal/python.exe\\" -m observal_cli.hooks.session_push"'
+    assert yaml.safe_load(rewritten)["command"] == command
+
+
+def test_pin_hook_interpreter_keeps_shell_and_frontmatter_valid_with_apostrophe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = "/tmp/Your App's/bin/python3"
+    monkeypatch.setattr(cmd_pull.sys, "executable", path)
+    profile = 'hooks:\n  Stop:\n    - hooks:\n        - command: "python3 -m observal_cli.hooks.session_push"\n'
+    rendered = cmd_pull._pin_hook_interpreter(profile)
+    command = yaml.safe_load(rendered)["hooks"]["Stop"][0]["hooks"][0]["command"]
+    assert shlex.split(command) == [path, "-m", "observal_cli.hooks.session_push"]
+    assert cmd_pull._pin_hook_interpreter(rendered) == rendered
+
+
+def test_profile_rewrite_only_touches_frontmatter_hook_commands(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cmd_pull.sys, "executable", "/tmp/Your App's/bin/python3")
+    mention = "For troubleshooting, run python3 -m observal_cli.hooks.session_push"
+    toml_profile = "developer_instructions = " + json.dumps(mention) + "\n"
+    assert cmd_pull._pin_agent_profile_hooks(toml_profile) == toml_profile
+    assert tomllib.loads(cmd_pull._pin_agent_profile_hooks(toml_profile))["developer_instructions"] == mention
+
+    markdown = (
+        "---\n"
+        "name: reviewer\n"
+        "hooks:\n"
+        "  Stop:\n"
+        "    - hooks:\n"
+        '        - command: "python3 -m observal_cli.hooks.session_push"\n'
+        "---\n"
+        "To debug, run python3 -m observal_cli.hooks.session_push\n"
+    )
+    rewritten = cmd_pull._pin_agent_profile_hooks(markdown)
+    frontmatter, body = rewritten.split("\n---\n", 1)
+    command = yaml.safe_load(frontmatter[4:])["hooks"]["Stop"][0]["hooks"][0]["command"]
+    assert shlex.split(command) == ["/tmp/Your App's/bin/python3", "-m", "observal_cli.hooks.session_push"]
+    assert body == "To debug, run python3 -m observal_cli.hooks.session_push\n"
+    assert cmd_pull._pin_agent_profile_hooks(rewritten) == rewritten
+
+
+def test_write_codex_profile_preserves_quoted_instructions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(cmd_pull.sys, "executable", "/tmp/Your App's/bin/python3")
+    instruction = "For troubleshooting, run python3 -m observal_cli.hooks.session_push"
+    content = "developer_instructions = " + json.dumps(instruction) + "\n"
+    adapter = MagicMock()
+    adapter.allow_home_agent_profile.return_value = False
+    cmd_pull.write_install_snippet(
+        {"agent_profile": {"path": "agent.toml", "content": content}},
+        harness="codex",
+        adapter=adapter,
+        target_dir=tmp_path,
+        agent_id="agent-uuid",
+        is_user_scope=False,
+    )
+    assert tomllib.loads((tmp_path / "agent.toml").read_text())["developer_instructions"] == instruction
 
 
 def test_resolve_hook_paths_uses_path_fallback_only_in_quoted_commands(monkeypatch: pytest.MonkeyPatch) -> None:

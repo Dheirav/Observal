@@ -377,7 +377,8 @@ class TestBuildCopilotCliHooks:
 
         from observal_cli.harness_specs.copilot_cli_hooks_spec import build_copilot_cli_hooks
 
-        invoke = f'& "{sys.executable}" -m observal_cli.hooks.session_push --harness copilot-cli'
+        ps_path = sys.executable.replace("'", "''")
+        invoke = f"& '{ps_path}' -m observal_cli.hooks.session_push --harness copilot-cli"
         for agent_id in ("", "agent-uuid-42"):
             for entries in build_copilot_cli_hooks(agent_id=agent_id)["hooks"].values():
                 ps = entries[0]["powershell"]
@@ -408,6 +409,16 @@ class TestRewriteCopilotCliHooks:
             assert len(obs) == 1
             assert "OBSERVAL_AGENT_ID=uuid-99" in obs[0]["bash"]
 
+    def test_powershell_interpreter_path_is_literal(self, monkeypatch):
+        """A path with PowerShell metacharacters cannot interpolate commands."""
+        import sys
+
+        from observal_cli.harness_specs.copilot_cli_hooks_spec import build_copilot_cli_hooks
+
+        monkeypatch.setattr(sys, "executable", "C:/Apps/$env:TEMP/it's python.exe")
+        command = build_copilot_cli_hooks()["hooks"]["sessionStart"][0]["powershell"]
+        assert command.startswith("& 'C:/Apps/$env:TEMP/it''s python.exe' -m observal_cli.hooks.session_push")
+
     def test_rebuilt_powershell_keeps_cli_interpreter(self):
         """Pull pins the interpreter, then this rebuild runs; it must not restore bare python."""
         import sys
@@ -417,7 +428,7 @@ class TestRewriteCopilotCliHooks:
         out = _rewrite_copilot_cli_hooks(self._server_content(), agent_id="uuid-99")
         for entries in out["hooks"].values():
             obs = [e for e in entries if "hooks.session_push --harness copilot-cli" in e.get("bash", "")]
-            assert f'& "{sys.executable}" -m observal_cli.hooks.session_push' in obs[0]["powershell"]
+            assert f"& '{sys.executable}' -m observal_cli.hooks.session_push" in obs[0]["powershell"]
 
     def test_preserves_user_added_hooks(self):
         from observal_cli.cmd_pull import _rewrite_copilot_cli_hooks
