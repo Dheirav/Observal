@@ -136,6 +136,7 @@ All notable changes to this project will be documented in this file.
 - keep intentional CLI downgrades pinned when targeting legacy releases ([#1672](https://github.com/Observal/Observal/pull/1672))
 - avoid duplicate bundled Observal skill conflicts when Codex and Pi are installed together ([#1601](https://github.com/Observal/Observal/issues/1601))
 - let `observal auth login` sign in with Google or GitHub through `--provider`, and ask which provider a bare `--sso` should use instead of always sending it to OIDC ([#1771](https://github.com/Observal/Observal/issues/1771))
+- run hooks in pulled Claude Code agents with the CLI's own interpreter instead of bare `python3`, which cannot import a `uv tool` install ([#1773](https://github.com/Observal/Observal/issues/1773))
 
 ## [1.11.0] - 2026-08-02
 

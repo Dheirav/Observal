@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 from contextlib import contextmanager
+from pathlib import PurePath
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
@@ -320,6 +321,35 @@ class TestPullClaudeCode:
         assert (tmp_path / ".claude" / "agents" / "my-agent.md").exists()
         # No .claude/mcp.json should exist — Claude Code uses setup commands instead
         assert not (tmp_path / ".claude" / "mcp.json").exists()
+
+    def test_rewrites_frontmatter_hook_python_path(self, tmp_path: Path):
+        """Frontmatter hooks must use this CLI's interpreter; bare python3 cannot import a uv tool install."""
+        snippet = _claude_code_snippet()
+        snippet["config_snippet"]["agent_profile"]["content"] = (
+            "---\n"
+            "name: my-agent\n"
+            "hooks:\n"
+            "  UserPromptSubmit:\n"
+            "    - hooks:\n"
+            "        - type: command\n"
+            '          command: "python3 -m observal_cli.hooks.session_push"\n'
+            "  Stop:\n"
+            "    - hooks:\n"
+            "        - type: command\n"
+            '          command: "python3 -m observal_cli.hooks.session_push"\n'
+            "---\n"
+        )
+        with _patch_config(), _patch_get_agent(), _patch_post(snippet):
+            result = runner.invoke(
+                cli_app, ["agent", "pull", "abc123", "--harness", "claude-code", "--dir", str(tmp_path), "--no-prompt"]
+            )
+
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / ".claude" / "agents" / "my-agent.md").read_text()
+        assert '"python3 -m' not in content
+        assert (
+            content.count(f'command: "{PurePath(sys.executable).as_posix()} -m observal_cli.hooks.session_push"') == 2
+        )
 
 
 # ═══════════════════════════════════════════════════════════════

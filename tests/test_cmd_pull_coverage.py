@@ -203,6 +203,24 @@ def test_component_conflicts_report_only_other_agent_versions(monkeypatch: pytes
     assert error.value.exit_code == 9
 
 
+def test_pin_hook_interpreter_is_idempotent_and_json_safe(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cmd_pull.sys, "executable", r"C:\Users\ada\observal\python.exe")
+    source = json.dumps({"command": "python3 -m observal_cli.hooks.session_push --harness cursor"})
+
+    once = cmd_pull._pin_hook_interpreter(source)
+
+    # Backslashes in the interpreter must neither break re.sub nor the JSON string.
+    assert (
+        json.loads(once)["command"]
+        == "C:/Users/ada/observal/python.exe -m observal_cli.hooks.session_push --harness cursor"
+    )
+    assert cmd_pull._pin_hook_interpreter(once) == once
+    assert (
+        cmd_pull._pin_hook_interpreter("/opt/venv/bin/python3 -m observal_cli.x")
+        == "/opt/venv/bin/python3 -m observal_cli.x"
+    )
+
+
 def test_resolve_hook_paths_uses_path_fallback_only_in_quoted_commands(monkeypatch: pytest.MonkeyPatch) -> None:
     import shutil
 
