@@ -21,6 +21,7 @@ import json as _json
 import os
 import re
 import shutil
+import sys
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Annotated, NoReturn
@@ -495,6 +496,14 @@ def login(
     if not json_mode:
         rprint("[green]Connected.[/green]")
 
+    if saml and provider and provider.lower() != "saml":
+        fail(
+            ErrorCategory.VALIDATION,
+            f"--saml and --provider {provider} name different providers.",
+            operation="Authenticate with SSO",
+            resource=resource,
+            remediation="Pass either --saml or --provider, not both.",
+        )
     sso_provider: str | None = "saml" if saml else (provider.lower() if provider else None)
     if sso_provider is not None and sso_provider not in _SSO_PROVIDERS:
         fail(
@@ -532,12 +541,13 @@ def login(
         pass
 
     # A bare --sso (or an SSO-only server) names no provider. With one enabled,
-    # use it; with several, ask in a terminal. JSON mode never prompts, so it
-    # keeps the server's default (OIDC, then SAML) for existing scripts.
+    # use it; with several, ask in a terminal. JSON mode and non-interactive
+    # stdin never prompt, so they keep the server's default (OIDC, then SAML)
+    # for existing scripts.
     if direct_sso and sso_provider is None:
         if len(enabled_providers) == 1:
             sso_provider = enabled_providers[0]
-        elif len(enabled_providers) > 1 and not json_mode:
+        elif len(enabled_providers) > 1 and not json_mode and sys.stdin.isatty():
             sso_provider = _choose_sso_provider(enabled_providers)
 
     if json_mode and not (sso or saml or provider) and not (email and supplied_password):
