@@ -162,11 +162,17 @@ async def device_authorize(request: Request, req: DeviceAuthRequest = None, db: 
         next_param = quote(next_path, safe="")
         provider = (req.provider or "").lower()
         saml_configured = await _saml_configured(db)
-        from api.routes.auth import is_oidc_configured
+        from api.routes.auth import is_github_oauth_configured, is_google_oauth_configured, is_oidc_configured
 
         oidc_configured = is_oidc_configured()
+        # Google and GitHub come before the OIDC fallback because someone who signs in
+        # with them on the web usually has no account at the OIDC provider.
         if provider == "saml" and saml_configured:
             login_url = f"{frontend_url}/api/v1/sso/saml/login?next={next_param}"
+        elif provider == "google" and is_google_oauth_configured():
+            login_url = f"{frontend_url}/api/v1/auth/oauth/google/login?next={next_param}"
+        elif provider == "github" and is_github_oauth_configured():
+            login_url = f"{frontend_url}/api/v1/auth/oauth/github/login?next={next_param}"
         elif oidc_configured:
             login_url = f"{frontend_url}/api/v1/auth/oauth/login?next={next_param}"
         elif saml_configured:

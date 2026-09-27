@@ -180,6 +180,38 @@ class TestDeviceAuthorize:
         finally:
             _cleanup()
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("provider", "google_on", "github_on", "expected_path"),
+        [
+            ("google", True, False, "/api/v1/auth/oauth/google/login?next="),
+            ("github", False, True, "/api/v1/auth/oauth/github/login?next="),
+            # A provider the server has not configured falls back to OIDC, as before.
+            ("google", False, False, "/api/v1/auth/oauth/login?next="),
+            (None, True, True, "/api/v1/auth/oauth/login?next="),
+        ],
+    )
+    async def test_sso_provider_selects_login_route(self, provider, google_on, github_on, expected_path):
+        fake_redis = FakeRedis()
+        try:
+            with (
+                patch("api.routes.device_auth.get_redis", return_value=fake_redis),
+                patch("api.routes.device_auth._saml_configured", AsyncMock(return_value=False)),
+                patch("api.routes.auth.is_oidc_configured", return_value=True),
+                patch("api.routes.auth.is_google_oauth_configured", return_value=google_on),
+                patch("api.routes.auth.is_github_oauth_configured", return_value=github_on),
+            ):
+                async with _make_async_client() as client:
+                    resp = await client.post("/api/v1/auth/device/authorize", json={"sso": True, "provider": provider})
+
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            assert expected_path in body["verification_uri"]
+            # The device page must still be the post-login destination.
+            assert "%2Fdevice%3Fcode%3D" in body["verification_uri"]
+        finally:
+            _cleanup()
+
     def test_user_code_uses_unambiguous_chars(self):
         from api.routes.device_auth import _generate_user_code
 
