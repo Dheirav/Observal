@@ -64,8 +64,10 @@ def build_copilot_cli_hooks(agent_id: str = "") -> dict:
     """
     module = "observal_cli.hooks.session_push"
     bash_cmd = f"{_python_cmd()} -m {module} --harness copilot-cli"
-    # PowerShell command uses bare 'python' which must be on Windows PATH
-    ps_cmd = f"python -m {module} --harness copilot-cli"
+    # Bare `python` cannot import observal_cli from a `uv tool` or pipx install, so
+    # PowerShell runs this CLI's interpreter too. A quoted path is only a string in
+    # PowerShell until the call operator `&` invokes it.
+    ps_cmd = f'& "{sys.executable}" -m {module} --harness copilot-cli'
 
     if agent_id:
         if sys.platform == "win32":
