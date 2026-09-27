@@ -219,6 +219,10 @@ def test_pin_hook_interpreter_is_idempotent_and_json_safe(monkeypatch: pytest.Mo
         cmd_pull._pin_hook_interpreter("/opt/venv/bin/python3 -m observal_cli.x")
         == "/opt/venv/bin/python3 -m observal_cli.x"
     )
+    # The same holds for a Windows path, in raw text and inside a JSON string.
+    windows = r"C:\Python312\python3 -m observal_cli.x"
+    assert cmd_pull._pin_hook_interpreter(windows) == windows
+    assert cmd_pull._pin_hook_interpreter(json.dumps(windows)) == json.dumps(windows)
 
 
 def test_resolve_hook_paths_uses_path_fallback_only_in_quoted_commands(monkeypatch: pytest.MonkeyPatch) -> None:
