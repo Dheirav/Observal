@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import subprocess
 import sys
 import tomllib
@@ -128,15 +129,64 @@ def _pin_hook_interpreter(content: str) -> str:
     Under ``uv tool install`` or pipx the system interpreter cannot import
     observal_cli and every hook fails. Windows accepts forward slashes, and a
     path without backslashes is safe inside JSON strings and YAML double-quoted
-    frontmatter alike. The function replacement keeps re.sub from reading the
-    path as a template.
+    frontmatter alike. Quote paths with spaces so the shell treats the
+    interpreter as one executable. The function replacement keeps re.sub from
+    reading the path as a template.
     """
-    interpreter = sys.executable.replace("\\", "/")
-    return re.sub(
-        r"(?<![/\\\w.-])python3? -m observal_cli\.",
-        lambda _match: f"{interpreter} -m observal_cli.",
-        content,
-    )
+    path = sys.executable.replace("\\", "/")
+    interpreter = subprocess.list2cmdline([path]) if sys.platform == "win32" else shlex.quote(path)
+    pattern = r"(?<![/\\\w.-])python3? -m observal_cli\."
+
+    def rewrite(text: str, *, yaml_frontmatter: bool = False) -> str:
+        def replace(match: re.Match[str]) -> str:
+            command = f"{interpreter} -m observal_cli."
+            # YAML double-quoted command scalars need their inner quotes escaped.
+            if yaml_frontmatter and text[: match.start()].endswith('command: "'):
+                command = command.replace('"', r"\"")
+            return command
+
+        return re.sub(pattern, replace, text)
+
+    # Rewrite decoded JSON values, not serialized JSON: a quoted Windows path
+    # would otherwise introduce unescaped quotes into the JSON document.
+    try:
+        parsed = json.loads(content)
+    except (ValueError, TypeError):
+        return rewrite(content, yaml_frontmatter=True)
+
+    def rewrite_value(value):
+        if isinstance(value, str):
+            return rewrite(value)
+        if isinstance(value, dict):
+            return {key: rewrite_value(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [rewrite_value(item) for item in value]
+        return value
+
+    return json.dumps(rewrite_value(parsed))
+
+
+def _pin_agent_profile_hooks(content: str) -> str:
+    """Pin executable commands in agent frontmatter without rewriting the agent's prose.
+
+    Codex profiles are TOML, and other profiles can contain free-form instructions.
+    Rewriting a command mentioned in quoted instructions can corrupt that file.
+    """
+    if not content.startswith("---\n"):
+        return content
+    frontmatter, separator, body = content.partition("\n---")
+    if not separator:
+        return content
+    lines = frontmatter.splitlines(keepends=True)
+    in_hooks = False
+    for index, line in enumerate(lines):
+        if line.startswith("hooks:"):
+            in_hooks = True
+        elif line and not line[0].isspace():
+            in_hooks = False
+        if in_hooks and re.match(r"^\s+(?:-\s+)?command:\s*", line):
+            lines[index] = _pin_hook_interpreter(line)
+    return "".join(lines) + separator + body
 
 
 def _mcp_components(agent_detail: dict) -> list[tuple[str, str, str | None]]:
@@ -1135,7 +1185,7 @@ def write_install_snippet(
             agent_profile["content"] = adapter.rewrite_agent_profile(agent_profile["content"], agent_id=agent_id)
         elif isinstance(agent_profile.get("content"), str):
             # Claude Code and other markdown agents carry their hooks in frontmatter.
-            agent_profile["content"] = _pin_hook_interpreter(_resolve_hook_paths(agent_profile["content"]))
+            agent_profile["content"] = _pin_agent_profile_hooks(_resolve_hook_paths(agent_profile["content"]))
         agent_profile_allow_home = adapter.allow_home_agent_profile(is_user_scope)
         p = _resolve_path(agent_profile["path"], target_dir, allow_home=agent_profile_allow_home)
         if dry_run:
