@@ -57,16 +57,26 @@ within that window, the CLI exits with an error.
 observal auth login --sso
 ```
 
-Or omit `--sso` and select "SSO (opens browser)" from the interactive menu
-when SSO is detected:
+When the server enables more than one SSO provider, `--sso` asks which one to
+use. Name it up front with `--provider` (`oidc`, `saml`, `google` or `github`),
+which also works in JSON mode:
+
+```bash
+observal auth login --sso --provider google
+```
+
+Or omit `--sso` and pick a provider from the interactive menu, which lists
+every provider the server enables:
 
 ```bash
 observal auth login
 # Connected.
-#
-#   [1] Email + password
-#   [2] SSO (opens browser)
-# Login method: 2
+#   [1] CLI email/username + password
+#   [2] Web sign-in
+#   [3] OIDC SSO
+#   [4] Google
+#   [5] SAML SSO
+#   Login method: 4
 ```
 
 ### SSO-Only Deployments
