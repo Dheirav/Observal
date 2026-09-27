@@ -133,7 +133,7 @@ def _pin_hook_interpreter(content: str) -> str:
     """
     interpreter = sys.executable.replace("\\", "/")
     return re.sub(
-        r"(?<![/\w.-])python3? -m observal_cli\.",
+        r"(?<![/\\\w.-])python3? -m observal_cli\.",
         lambda _match: f"{interpreter} -m observal_cli.",
         content,
     )
