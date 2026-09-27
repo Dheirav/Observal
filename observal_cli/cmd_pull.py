@@ -121,6 +121,24 @@ def _resolve_hook_paths(content: str) -> str:
     return content
 
 
+def _pin_hook_interpreter(content: str) -> str:
+    """Point bare ``python3 -m observal_cli.`` hook commands at this CLI's interpreter.
+
+    The server cannot know how the CLI was installed, so it emits bare python3.
+    Under ``uv tool install`` or pipx the system interpreter cannot import
+    observal_cli and every hook fails. Windows accepts forward slashes, and a
+    path without backslashes is safe inside JSON strings and YAML double-quoted
+    frontmatter alike. The function replacement keeps re.sub from reading the
+    path as a template.
+    """
+    interpreter = sys.executable.replace("\\", "/")
+    return re.sub(
+        r"(?<![/\w.-])python3? -m observal_cli\.",
+        lambda _match: f"{interpreter} -m observal_cli.",
+        content,
+    )
+
+
 def _mcp_components(agent_detail: dict) -> list[tuple[str, str, str | None]]:
     """(listing id, display name, pinned version) for each MCP an agent version uses."""
     mcps: list[tuple[str, str, str | None]] = []
@@ -1095,18 +1113,11 @@ def write_install_snippet(
         p = _resolve_path(hooks_cfg["path"], target_dir, allow_home=is_user_scope)
         content = hooks_cfg["content"]
         if isinstance(content, str):
-            content = _resolve_hook_paths(content)
+            content = _pin_hook_interpreter(_resolve_hook_paths(content))
         elif isinstance(content, dict):
             # Resolve hook paths inside JSON content (command fields)
             raw = json.dumps(content)
-            raw = _resolve_hook_paths(raw)
-            import re
-
-            raw = re.sub(
-                r"(?<!/)python3? -m observal_cli\.",
-                f"{sys.executable} -m observal_cli.",
-                raw,
-            )
+            raw = _pin_hook_interpreter(_resolve_hook_paths(raw))
             content = json.loads(raw)
             content = adapter.rewrite_hooks(content, agent_id=agent_id)
         if dry_run:
@@ -1123,7 +1134,8 @@ def write_install_snippet(
         if isinstance(agent_profile.get("content"), dict):
             agent_profile["content"] = adapter.rewrite_agent_profile(agent_profile["content"], agent_id=agent_id)
         elif isinstance(agent_profile.get("content"), str):
-            agent_profile["content"] = _resolve_hook_paths(agent_profile["content"])
+            # Claude Code and other markdown agents carry their hooks in frontmatter.
+            agent_profile["content"] = _pin_hook_interpreter(_resolve_hook_paths(agent_profile["content"]))
         agent_profile_allow_home = adapter.allow_home_agent_profile(is_user_scope)
         p = _resolve_path(agent_profile["path"], target_dir, allow_home=agent_profile_allow_home)
         if dry_run:
