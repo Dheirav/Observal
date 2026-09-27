@@ -582,6 +582,7 @@ def test_bare_sso_asks_which_provider_when_several_are_enabled(
     device_login = MagicMock()
     monkeypatch.setattr(auth, "quick_choice", quick_choice)
     monkeypatch.setattr(auth, "_do_device_flow_login", device_login)
+    monkeypatch.setattr(auth.sys, "stdin", SimpleNamespace(isatty=lambda: True))
 
     auth.login(SERVER_URL, None, None, None, not public.get("sso_only"), False)
 
@@ -608,6 +609,43 @@ def test_bare_sso_uses_the_only_enabled_provider_without_asking(monkeypatch: pyt
 
     quick_choice.assert_not_called()
     assert device_login.call_args.kwargs["provider"] == "google"
+
+
+def test_bare_sso_without_terminal_keeps_server_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    _prepare_login(monkeypatch, public={"sso_enabled": True, "google_sso_enabled": True})
+    quick_choice = MagicMock(side_effect=AssertionError("non-interactive stdin must not prompt"))
+    device_login = MagicMock()
+    monkeypatch.setattr(auth, "quick_choice", quick_choice)
+    monkeypatch.setattr(auth, "_do_device_flow_login", device_login)
+    monkeypatch.setattr(auth.sys, "stdin", SimpleNamespace(isatty=lambda: False))
+
+    auth.login(SERVER_URL, None, None, None, True, False)
+
+    assert device_login.call_args.kwargs["provider"] is None
+
+
+@pytest.mark.parametrize("provider", ["google", "okta"])
+def test_login_rejects_saml_with_a_different_provider(provider: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    _prepare_login(monkeypatch, public={"sso_enabled": True, "google_sso_enabled": True, "saml_enabled": True})
+    device_login = MagicMock()
+    monkeypatch.setattr(auth, "_do_device_flow_login", device_login)
+
+    with pytest.raises(CliError) as exc_info:
+        auth.login(SERVER_URL, None, None, None, False, True, provider=provider)
+
+    assert exc_info.value.category is ErrorCategory.VALIDATION
+    assert "--saml and --provider" in exc_info.value.message
+    device_login.assert_not_called()
+
+
+def test_login_accepts_saml_with_matching_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    _prepare_login(monkeypatch, public={"saml_enabled": True})
+    device_login = MagicMock()
+    monkeypatch.setattr(auth, "_do_device_flow_login", device_login)
+
+    auth.login(SERVER_URL, None, None, None, False, True, provider="SAML")
+
+    assert device_login.call_args.kwargs["provider"] == "saml"
 
 
 def test_json_bare_sso_keeps_server_default_without_prompting(monkeypatch: pytest.MonkeyPatch) -> None:

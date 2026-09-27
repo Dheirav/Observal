@@ -31,7 +31,7 @@ Human login always asks for the server URL unless `--server` is supplied; leave 
 
 Successful human login synchronizes the bundled skills, creates the initial layer snapshot, and runs doctor. Select `no-setup` to skip the snapshot and doctor. JSON mode skips those post-login steps.
 
-`provider` picks the browser SSO provider: `oidc`, `saml`, `google` or `github`. It implies `sso`, and the CLI rejects a provider the server has not enabled. A bare `sso` uses the only enabled provider, or asks which one when the server enables several. JSON mode never asks, so a bare `sso` there falls back to the server default (OIDC, then SAML); pass `provider` to choose.
+`provider` picks the browser SSO provider: `oidc`, `saml`, `google` or `github`. It implies `sso`, and the CLI rejects a provider the server has not enabled, or `saml` combined with a different `provider`. A bare `sso` uses the only enabled provider, or asks which one when the server enables several. JSON mode and non-interactive input never ask, so a bare `sso` there falls back to the server default (OIDC, then SAML); pass `provider` to choose.
 
 Every CLI invocation also computes a SHA-256 hash for each installed Observal-managed skill tree. A mismatched tree is replaced completely from the packaged bundle, including references and scripts, so local edits and stale extra files do not survive. Skill directories outside the six bundled Observal names are untouched.
 
