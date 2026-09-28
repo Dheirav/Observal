@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import subprocess
 import sys
 from contextlib import contextmanager
@@ -322,8 +323,9 @@ class TestPullClaudeCode:
         # No .claude/mcp.json should exist — Claude Code uses setup commands instead
         assert not (tmp_path / ".claude" / "mcp.json").exists()
 
-    def test_rewrites_frontmatter_hook_python_path(self, tmp_path: Path):
-        """Frontmatter hooks must use this CLI's interpreter; bare python3 cannot import a uv tool install."""
+    def test_rewrites_frontmatter_hook_python_path(self, tmp_path: Path, monkeypatch):
+        """Frontmatter hooks must use this CLI's interpreter, including paths with spaces."""
+        monkeypatch.setattr(sys, "executable", "/tmp/Observal Tools/bin/python3")
         snippet = _claude_code_snippet()
         snippet["config_snippet"]["agent_profile"]["content"] = (
             "---\n"
@@ -347,9 +349,13 @@ class TestPullClaudeCode:
         assert result.exit_code == 0, result.output
         content = (tmp_path / ".claude" / "agents" / "my-agent.md").read_text()
         assert '"python3 -m' not in content
-        assert (
-            content.count(f'command: "{PurePath(sys.executable).as_posix()} -m observal_cli.hooks.session_push"') == 2
-        )
+        frontmatter, _, _body = content[4:].partition("\n---")
+        hooks = yaml.safe_load(frontmatter)["hooks"]
+        expected_path = PurePath(sys.executable).as_posix()
+        quoted = subprocess.list2cmdline([expected_path]) if sys.platform == "win32" else shlex.quote(expected_path)
+        for event in ("UserPromptSubmit", "Stop"):
+            command = hooks[event][0]["hooks"][0]["command"]
+            assert command == f"{quoted} -m observal_cli.hooks.session_push"
 
 
 # ═══════════════════════════════════════════════════════════════

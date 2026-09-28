@@ -259,6 +259,44 @@ def test_pin_hook_interpreter_keeps_shell_and_frontmatter_valid_with_apostrophe(
     assert cmd_pull._pin_hook_interpreter(rendered) == rendered
 
 
+@pytest.mark.parametrize("path", ["/tmp/Observal Tools/bin/python3", "/tmp/Your App's/bin/python3"])
+@pytest.mark.parametrize("style", ["single", "bare"])
+def test_pin_hook_interpreter_preserves_yaml_commands(monkeypatch: pytest.MonkeyPatch, path: str, style: str) -> None:
+    monkeypatch.setattr(cmd_pull.sys, "executable", path)
+    original = "python3 -m observal_cli.hooks.session_push"
+    if style == "single":
+        original = f"'{original}'"
+    profile = (
+        "---\nname: test\nhooks:\n  Stop:\n    - hooks:\n"
+        f"        - command: {original}\n"
+        "---\nRun python3 -m observal_cli.hooks.session_push to test.\n"
+    )
+
+    rewritten = cmd_pull._pin_agent_profile_hooks(profile)
+    frontmatter, body = rewritten.split("\n---\n", 1)
+    command = yaml.safe_load(frontmatter[4:])["hooks"]["Stop"][0]["hooks"][0]["command"]
+    assert shlex.split(command) == [path, "-m", "observal_cli.hooks.session_push"]
+    assert body == "Run python3 -m observal_cli.hooks.session_push to test.\n"
+    assert cmd_pull._pin_agent_profile_hooks(rewritten) == rewritten
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell invocation")
+def test_single_quoted_yaml_hook_launches_interpreter_with_special_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    interpreter = tmp_path / "Your App's $Tools" / "python3"
+    interpreter.parent.mkdir()
+    interpreter.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+    interpreter.chmod(0o755)
+    monkeypatch.setattr(cmd_pull.sys, "executable", str(interpreter))
+    profile = "---\nhooks:\n  Stop:\n    - command: 'python3 -m observal_cli.hooks.session_push'\n---\n"
+
+    rendered = cmd_pull._pin_agent_profile_hooks(profile)
+    command = yaml.safe_load(rendered[4:].split("\n---", 1)[0])["hooks"]["Stop"][0]["command"]
+    result = subprocess.run(["/bin/sh", "-c", command], capture_output=True, text=True, check=True)
+    assert result.stdout.splitlines() == ["-m", "observal_cli.hooks.session_push"]
+
+
 def test_profile_rewrite_only_touches_frontmatter_hook_commands(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cmd_pull.sys, "executable", "/tmp/Your App's/bin/python3")
     mention = "For troubleshooting, run python3 -m observal_cli.hooks.session_push"

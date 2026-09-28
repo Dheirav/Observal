@@ -140,9 +140,15 @@ def _pin_hook_interpreter(content: str) -> str:
     def rewrite(text: str, *, yaml_frontmatter: bool = False) -> str:
         def replace(match: re.Match[str]) -> str:
             command = f"{interpreter} -m observal_cli."
-            # YAML double-quoted command scalars need their inner quotes escaped.
-            if yaml_frontmatter and text[: match.start()].endswith('command: "'):
-                command = command.replace('"', r"\"")
+            if yaml_frontmatter:
+                # Preserve the scalar's YAML quoting while adding shell quoting.
+                # shlex.quote may introduce apostrophes even when the path has none.
+                line_start = text.rfind("\n", 0, match.start()) + 1
+                prefix = text[line_start : match.start()]
+                if re.match(r"^[ \t]*(?:-[ \t]+)?command:[ \t]*'", prefix):
+                    command = command.replace("'", "''")
+                elif re.match(r'^[ \t]*(?:-[ \t]+)?command:[ \t]*"', prefix):
+                    command = command.replace('"', r"\"")
             return command
 
         return re.sub(pattern, replace, text)
@@ -184,8 +190,16 @@ def _pin_agent_profile_hooks(content: str) -> str:
             in_hooks = True
         elif line and not line[0].isspace():
             in_hooks = False
-        if in_hooks and re.match(r"^\s+(?:-\s+)?command:\s*", line):
-            lines[index] = _pin_hook_interpreter(line)
+        command_field = re.match(r"^(\s+(?:-\s+)?command:[ \t]*)", line) if in_hooks else None
+        if command_field:
+            rewritten = _pin_hook_interpreter(line)
+            if rewritten != line and not line[command_field.end() :].startswith(("'", '"')):
+                # A shell-quoted path at the start of a bare YAML scalar is
+                # parsed as a whole scalar; the following -m then breaks YAML.
+                value = rewritten[command_field.end() :].rstrip("\r\n")
+                newline = rewritten[command_field.end() + len(value) :]
+                rewritten = rewritten[: command_field.end()] + json.dumps(value) + newline
+            lines[index] = rewritten
     return "".join(lines) + separator + body
 
 
