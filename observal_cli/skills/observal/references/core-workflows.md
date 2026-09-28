@@ -29,7 +29,7 @@ observal auth status --output json
 observal auth set-username new-handle --output json
 ```
 
-`--provider` accepts `oidc`, `saml`, `google` or `github`. In JSON mode, pass it whenever the server enables more than one SSO provider, because a bare `--sso` then goes to the server's OIDC default, where Google or GitHub users have no account.
+`--provider` accepts `oidc`, `saml`, `google` or `github`. In JSON mode or any other non-interactive run, pass it whenever the server enables more than one SSO provider, because a bare `--sso` then goes to the server's OIDC default, where Google or GitHub users have no account.
 
 For noninteractive password authentication, keep passwords out of arguments:
 

@@ -58,8 +58,9 @@ observal auth login --sso
 ```
 
 When the server enables more than one SSO provider, `--sso` asks which one to
-use. Name it up front with `--provider` (`oidc`, `saml`, `google` or `github`),
-which also works in JSON mode:
+use in an interactive terminal. JSON mode and non-interactive input never ask and
+fall back to the server's default, so name the provider up front with
+`--provider` (`oidc`, `saml`, `google` or `github`) there:
 
 ```bash
 observal auth login --sso --provider google
