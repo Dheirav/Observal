@@ -185,13 +185,34 @@ def _pin_agent_profile_hooks(content: str) -> str:
         return content
     lines = frontmatter.splitlines(keepends=True)
     in_hooks = False
+    block_indent: int | None = None
+    content_indent: int | None = None
     for index, line in enumerate(lines):
+        indent = len(line) - len(line.lstrip(" "))
+        if block_indent is not None:
+            if line.strip():
+                if indent <= block_indent or (content_indent is not None and indent < content_indent):
+                    block_indent = None
+                    content_indent = None
+                else:
+                    content_indent = indent if content_indent is None else content_indent
+            if block_indent is not None:
+                # Block scalar contents are shell script lines, not YAML quoted
+                # scalars. Rewrite executable invocations, not comments or prose.
+                if re.match(r"^[ \t]*(?:(?:[A-Za-z_]\w*=[^ \t]+|exec)[ \t]+)*python3? -m observal_cli\.", line):
+                    lines[index] = _pin_hook_interpreter(line)
+                continue
         if line.startswith("hooks:"):
             in_hooks = True
         elif line and not line[0].isspace():
             in_hooks = False
         command_field = re.match(r"^(\s+(?:-\s+)?command:[ \t]*)", line) if in_hooks else None
         if command_field:
+            indicator = line[command_field.end() :].split("#", 1)[0].strip()
+            if re.fullmatch(r"[|>](?:[+-]?[1-9]?|[1-9][+-]?)", indicator):
+                block_indent = indent
+                content_indent = None
+                continue
             rewritten = _pin_hook_interpreter(line)
             if rewritten != line and not line[command_field.end() :].startswith(("'", '"')):
                 # A shell-quoted path at the start of a bare YAML scalar is

@@ -280,6 +280,85 @@ def test_pin_hook_interpreter_preserves_yaml_commands(monkeypatch: pytest.Monkey
     assert cmd_pull._pin_agent_profile_hooks(rewritten) == rewritten
 
 
+@pytest.mark.parametrize("indicator", ["|", "|-", ">-"])
+def test_pin_hook_interpreter_rewrites_yaml_block_command(monkeypatch: pytest.MonkeyPatch, indicator: str) -> None:
+    path = "/tmp/Your App's/bin/python3"
+    monkeypatch.setattr(cmd_pull.sys, "executable", path)
+    profile = (
+        "---\nname: test\nhooks:\n  Stop:\n    - hooks:\n"
+        f"        - command: {indicator}\n"
+        "            python3 -m observal_cli.hooks.session_push --harness claude-code\n"
+        "          timeoutSec: 5\n"
+        "description: Run python3 -m observal_cli.hooks.session_push manually\n"
+        "---\nRun python3 -m observal_cli.hooks.session_push to test.\n"
+    )
+
+    rewritten = cmd_pull._pin_agent_profile_hooks(profile)
+    frontmatter, body = rewritten.split("\n---\n", 1)
+    data = yaml.safe_load(frontmatter[4:])
+    command = data["hooks"]["Stop"][0]["hooks"][0]["command"]
+    assert shlex.split(command) == [path, "-m", "observal_cli.hooks.session_push", "--harness", "claude-code"]
+    assert data["description"] == "Run python3 -m observal_cli.hooks.session_push manually"
+    assert body == "Run python3 -m observal_cli.hooks.session_push to test.\n"
+    assert cmd_pull._pin_agent_profile_hooks(rewritten) == rewritten
+
+
+def test_pin_hook_interpreter_preserves_block_script_comments_and_siblings(monkeypatch: pytest.MonkeyPatch) -> None:
+    path = "/tmp/Your App's/bin/python3"
+    monkeypatch.setattr(cmd_pull.sys, "executable", path)
+    profile = (
+        "---\nhooks:\n  Stop:\n    - hooks:\n"
+        "        - command: |2- # shell script\n"
+        "            # To debug: python3 -m observal_cli.hooks.session_push\n"
+        "            OBSERVAL_AGENT_ID=abc exec python3 -m observal_cli.hooks.session_push\n"
+        "            echo python3 -m observal_cli.hooks.session_push\n"
+        "          timeoutSec: 5\n"
+        "        - command: 'python3 -m observal_cli.hooks.kiro_hook'\n"
+        "---\nPlain prose python3 -m observal_cli.hooks.session_push\n"
+    )
+
+    rewritten = cmd_pull._pin_agent_profile_hooks(profile)
+    frontmatter, body = rewritten.split("\n---\n", 1)
+    hooks = yaml.safe_load(frontmatter[4:])["hooks"]["Stop"][0]["hooks"]
+    script = hooks[0]["command"].splitlines()
+    assert script[0] == "# To debug: python3 -m observal_cli.hooks.session_push"
+    assert shlex.split(script[1]) == ["OBSERVAL_AGENT_ID=abc", "exec", path, "-m", "observal_cli.hooks.session_push"]
+    assert script[2] == "echo python3 -m observal_cli.hooks.session_push"
+    assert hooks[0]["timeoutSec"] == 5
+    assert shlex.split(hooks[1]["command"]) == [path, "-m", "observal_cli.hooks.kiro_hook"]
+    assert body == "Plain prose python3 -m observal_cli.hooks.session_push\n"
+    assert cmd_pull._pin_agent_profile_hooks(rewritten) == rewritten
+
+
+def test_write_profile_pins_block_hook_and_preserves_body(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    path = "/tmp/Your App's/bin/python3"
+    monkeypatch.setattr(cmd_pull.sys, "executable", path)
+    profile = (
+        "---\nhooks:\n  Stop:\n    - command: |-\n"
+        "        python3 -m observal_cli.hooks.session_push\n"
+        "---\nTo debug, run python3 -m observal_cli.hooks.session_push\n"
+    )
+    adapter = MagicMock()
+    adapter.allow_home_agent_profile.return_value = False
+
+    written, failed = cmd_pull.write_install_snippet(
+        {"agent_profile": {"path": "agent.md", "content": profile}},
+        harness="claude-code",
+        adapter=adapter,
+        target_dir=tmp_path,
+        agent_id="agent-uuid",
+        is_user_scope=False,
+    )
+
+    assert failed == []
+    assert written == [(str(tmp_path / "agent.md"), "created")]
+    saved = (tmp_path / "agent.md").read_text()
+    frontmatter, body = saved[4:].split("\n---\n", 1)
+    command = yaml.safe_load(frontmatter)["hooks"]["Stop"][0]["command"]
+    assert shlex.split(command) == [path, "-m", "observal_cli.hooks.session_push"]
+    assert body == "To debug, run python3 -m observal_cli.hooks.session_push\n"
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell invocation")
 def test_single_quoted_yaml_hook_launches_interpreter_with_special_path(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
