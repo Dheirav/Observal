@@ -83,7 +83,9 @@ observal auth login
 ### SSO-Only Deployments
 
 When `deployment.sso_only=true` is set on the server, the CLI automatically uses the
-device flow. No `--sso` flag or interactive choice is needed:
+device flow and skips the login-method menu, so no `--sso` flag is needed. If several SSO
+providers are enabled, a terminal session still asks which one to use; pass `--provider google`
+(or `github`, `saml`) to skip that prompt. With a single enabled provider, no prompt appears:
 
 ```bash
 observal auth login --server https://observal.company.com
